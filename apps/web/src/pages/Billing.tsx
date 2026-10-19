@@ -282,7 +282,7 @@ export function Billing() {
 
   // ------------------------------------------------------------ save
   const [saving, setSaving] = useState(false);
-  const save = async (print: boolean) => {
+  const save = async (print: boolean, creditOverrideToken?: string) => {
     if (!canSave || saving) return;
     setSaving(true);
     try {
@@ -295,6 +295,7 @@ export function Billing() {
         placeOfSupply: pos,
         paymentMode: draft.mode,
         notes: draft.notes || undefined,
+        creditOverrideToken,
         lines: rows.map((x) => ({
           productId: x.p!.id,
           qtyMilli: x.qtyMilli!,
@@ -329,6 +330,23 @@ export function Billing() {
       const err = e instanceof ApiError ? e : null;
       if (err?.code === 'NEEDS_OVERRIDE' && typeof err.details?.lineIndex === 'number') {
         void approveLine(err.details.lineIndex);
+      } else if (err?.code === 'NEEDS_OVERRIDE' && err.details?.permission === 'billing.over_credit_limit') {
+        const det = err.details as { customerId: number; balancePaise: number; limitPaise: number; afterPaise: number };
+        setSaving(false);
+        const res = await askOverride({
+          permission: 'billing.over_credit_limit',
+          context: { customerId: det.customerId, upToPaise: det.afterPaise },
+          title: 'Over the credit limit',
+          details: (
+            <div className="num">
+              {draft.customer?.name}: owes ₹{formatPaise(det.balancePaise)} · this bill ₹{formatPaise(det.afterPaise - det.balancePaise)}
+              <br />
+              After this bill <b className="text-bad">₹{formatPaise(det.afterPaise)}</b> · limit ₹{formatPaise(det.limitPaise)}
+            </div>
+          ),
+        });
+        if (res) return save(print, res.token);
+        return;
       } else {
         toast({ tone: 'bad', text: err?.message ?? 'Could not save the bill. It is kept — try again.' });
       }

@@ -73,3 +73,18 @@ export function reminderMessage(lang: 'te' | 'en', r: ReminderInput): string {
 export function whatsappLink(phone: string, text: string) {
   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
 }
+
+/**
+ * Money paid "on account" (not marked against bills) settles the oldest bills first.
+ * Given what is due on each bill (oldest first) and what is actually owed in total,
+ * returns what is still open on each bill.
+ */
+export function settleOldestFirst(dues: number[], owed: number): number[] {
+  let extra = dues.reduce((t, d) => t + Math.max(d, 0), 0) - Math.max(owed, 0);
+  return dues.map((d) => {
+    const due = Math.max(d, 0);
+    const take = Math.min(due, Math.max(extra, 0));
+    extra -= take;
+    return due - take;
+  });
+}

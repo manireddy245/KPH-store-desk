@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, ageBucket, daysBetween, reminderMessage, whatsappLink, whatsappNumber } from '../src/index.js';
+import { addDays, ageBucket, daysBetween, reminderMessage, settleOldestFirst, whatsappLink, whatsappNumber } from '../src/index.js';
 
 describe('khata helpers', () => {
   it('ageing buckets', () => {
@@ -28,5 +28,14 @@ describe('khata helpers', () => {
     expect(en).not.toContain('past the due date'); // whole balance overdue: no separate line
     expect(en).not.toContain('upi://');
     expect(whatsappLink('919848012345', 'a b&c')).toBe('https://wa.me/919848012345?text=a%20b%26c');
+  });
+});
+
+describe('on-account payments settle the oldest bills first', () => {
+  it('settleOldestFirst', () => {
+    expect(settleOldestFirst([100, 200, 300], 450)).toEqual([0, 150, 300]);
+    expect(settleOldestFirst([100, 200], 300)).toEqual([100, 200]);
+    expect(settleOldestFirst([100, 200], 0)).toEqual([0, 0]);
+    expect(settleOldestFirst([100, 200], -50)).toEqual([0, 0]); // advance
   });
 });

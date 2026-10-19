@@ -7,6 +7,7 @@ import { MODE_LABEL, fmtDate, fmtDateTime, fmtTime } from '../lib/format';
 import { useSession } from '../lib/session';
 import { Page } from '../components/Layout';
 import { Badge, Card, Empty, Notice, PageTitle, Spinner, cx } from '../components/ui';
+import { WhatsAppButton } from '../components/KhataBits';
 
 interface Dash {
   today: {
@@ -37,6 +38,13 @@ export function Dashboard() {
   const { can } = useSession();
   const q = useQuery({ queryKey: ['dashboard'], queryFn: () => get<Dash>('/api/dashboard'), refetchInterval: 60_000 });
   const d = q.data;
+  const showDues = can('payments.receive') || can('reports.view');
+  const dues = useQuery({
+    queryKey: ['khata', 'due'],
+    queryFn: () => get<{ overduePaise: number; dueTodayPaise: number; count: number; customers: { customerId: number; name: string; phone: string | null; balancePaise: number; overduePaise: number; dueTodayPaise: number; oldestDays: number; lastReminder: string | null }[] }>('/api/khata/due'),
+    enabled: showDues,
+    refetchInterval: 300_000,
+  });
   const today = new Date(Date.now() + 5.5 * 3600000);
   const heading = today.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
 
@@ -107,6 +115,38 @@ export function Dashboard() {
           </div>
 
           <div className="flex flex-wrap items-start gap-4">
+            {showDues && dues.data && (
+              <Card
+                title="Payments due"
+                className="flex-[1_1_380px]"
+                actions={<Link to="/khata" className="text-sm font-semibold underline">Khata</Link>}
+              >
+                {dues.data.count === 0 ? (
+                  <Empty>No customer payment is overdue.</Empty>
+                ) : (
+                  <>
+                    <div className="num pb-2 text-sm">
+                      Overdue <b className="text-bad">{rupees(dues.data.overduePaise)}</b> from {dues.data.count} customer{dues.data.count === 1 ? '' : 's'}
+                      {dues.data.dueTodayPaise > 0 && <> · due today {rupees(dues.data.dueTodayPaise)}</>}
+                    </div>
+                    {dues.data.customers.slice(0, 6).map((c) => (
+                      <div key={c.customerId} className="flex items-center justify-between gap-2 border-t border-line-3 py-2 text-sm">
+                        <span className="min-w-0">
+                          <span className="font-semibold">{c.name}</span>
+                          <span className="block text-[12px] text-ink-3">
+                            oldest {c.oldestDays} day{c.oldestDays === 1 ? "" : "s"}{c.lastReminder ? ` · reminded ${fmtDate(c.lastReminder.slice(0, 10))}` : ''}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className="num whitespace-nowrap font-bold text-bad">{rupees(c.overduePaise || c.dueTodayPaise)}</span>
+                          {can('payments.receive') && c.phone && <WhatsAppButton customerId={c.customerId} label="" />}
+                        </span>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </Card>
+            )}
             <Card title="Low and out of stock" className="flex-[1_1_380px]">
               {d.lowItems.length === 0 ? (
                 <Empty>Everything is above its reorder level.</Empty>

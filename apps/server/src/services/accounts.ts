@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fyStartYear, isValidGstin, istDate, mulDivRound } from '@kph/core';
+import { fyStartYear, isValidGstin, istDate, mulDivRound, settleOldestFirst } from '@kph/core';
 import type { Q, Sql, Tx } from '../db/connect.js';
 import { consumeOverride } from './auth.js';
 import { AppError, audit, can, requirePerm, type Ctx } from './common.js';
@@ -134,6 +134,18 @@ export async function outstandingPurchases(q: Q, supplierId: number) {
     from purchase_invoices p
     where p.supplier_id = ${supplierId} and p.status = 'posted'
     order by p.supplier_invoice_date, p.id`;
+}
+
+/** Unpaid supplier bills with what is really still open after on-account payments (oldest first). */
+export async function openPurchases(q: Q, supplierId: number) {
+  const bills = await outstandingPurchases(q, supplierId);
+  const [s] = await q<{ owe: number; opening: number }[]>`
+    select -(l.opening_dr_paise + coalesce((select sum(dr_paise - cr_paise) from voucher_lines where ledger_id = l.id), 0)) as owe, -l.opening_dr_paise as opening
+    from suppliers s join ledgers l on l.id = s.ledger_id where s.id = ${supplierId}`;
+  if (!s) return [];
+  const openingDue = Math.max(s.opening, 0);
+  const open = settleOldestFirst([openingDue, ...bills.map((b) => b.due_paise)], s.owe).slice(1);
+  return bills.map((b, i) => ({ ...b, open_paise: open[i]! })).filter((b) => b.open_paise > 0);
 }
 
 export async function paySupplier(

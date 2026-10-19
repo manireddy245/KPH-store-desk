@@ -240,6 +240,7 @@ interface DueBill {
   supplier_invoice_date: string;
   total_paise: number;
   due_paise: number;
+  open_paise: number;
 }
 
 function PaySupplier({ preselect }: { preselect: number | null }) {
@@ -260,7 +261,7 @@ function PaySupplier({ preselect }: { preselect: number | null }) {
 
   useEffect(() => setSupplierId(preselect ?? ''), [preselect]);
   const bills = useQuery({ queryKey: ['accounts', 'outstanding', supplierId], queryFn: () => get<DueBill[]>(`/api/suppliers/${supplierId}/outstanding`), enabled: !!supplierId });
-  const due = (bills.data ?? []).filter((b) => b.due_paise > 0);
+  const due = bills.data ?? [];
   const sup = suppliers.data?.find((s) => s.id === supplierId);
   useEffect(() => setAlloc({}), [supplierId]);
 
@@ -276,7 +277,7 @@ function PaySupplier({ preselect }: { preselect: number | null }) {
     const next: Record<number, string> = {};
     for (const b of due) {
       if (left <= 0) break;
-      const take = Math.min(left, b.due_paise);
+      const take = Math.min(left, b.open_paise);
       next[b.id] = (take / 100).toFixed(2);
       left -= take;
     }
@@ -349,10 +350,12 @@ function PaySupplier({ preselect }: { preselect: number | null }) {
                     <div className="min-w-0 flex-1">
                       <div className="font-semibold">Bill {b.supplier_invoice_no}</div>
                       <div className="text-[12px] text-ink-3">
-                        {fmtDate(b.supplier_invoice_date)} · {b.number} · due ₹{rs(b.due_paise)} of ₹{rs(b.total_paise)}
+                        {fmtDate(b.supplier_invoice_date)} · {b.number} · still due ₹{rs(b.open_paise)} of ₹{rs(b.total_paise)}
                       </div>
                     </div>
-                    <Input aria-label={`Pay against ${b.supplier_invoice_no}`} inputMode="decimal" className="num w-[120px]" value={alloc[b.id] ?? ''} onChange={(e) => setAlloc((a) => ({ ...a, [b.id]: e.target.value }))} placeholder="₹" />
+                    <div className="w-[120px] flex-none">
+                      <Input aria-label={`Pay against ${b.supplier_invoice_no}`} inputMode="decimal" className="num" value={alloc[b.id] ?? ''} onChange={(e) => setAlloc((a) => ({ ...a, [b.id]: e.target.value }))} placeholder="₹" />
+                    </div>
                   </div>
                 ))}
               </div>

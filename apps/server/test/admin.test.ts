@@ -93,7 +93,6 @@ describe('backup and restore', () => {
     const r = await writeBackup(h.owner, 'sample', dir, 'manual');
     const data = readBackupFile(join(dir, r.file));
     expect(JSON.stringify(data.tables.settings)).not.toContain('secret-key');
-    const before = await createBackupData(h.owner, 'sample');
 
     // change things after the backup
     const extra = await h.product({ qty: 3 });
@@ -101,9 +100,10 @@ describe('backup and restore', () => {
 
     await restoreBackupData(h.owner, data);
     const after = await createBackupData(h.owner, 'sample');
-    for (const t of Object.keys(before.counts)) {
+    // compare with the backup file itself (not a second snapshot, which could catch a late write)
+    for (const t of Object.keys(data.counts)) {
       if (t === 'audit_log' || t === 'users') continue; // login during the test adds rows
-      expect(after.counts[t], t).toBe(before.counts[t]);
+      expect(after.counts[t], t).toBe(data.counts[t]);
     }
     const [gone] = await h.app`select 1 from products where id = ${extra}`;
     expect(gone).toBeUndefined();

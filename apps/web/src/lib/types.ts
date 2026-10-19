@@ -43,6 +43,8 @@ export interface CustomerRow {
   state_code: string;
   address: string | null;
   credit_limit_paise: number | null;
+  credit_days?: number | null;
+  language?: 'te' | 'en' | null;
   notes: string | null;
   active: boolean;
   balance_paise: number;

@@ -17,6 +17,8 @@ import { PurchaseNew } from './pages/PurchaseNew';
 import { Assistant } from './pages/Assistant';
 import { Reports } from './pages/Reports';
 import { AccountsPage } from './pages/Accounts';
+import { Khata } from './pages/Khata';
+import { StatementPrint } from './pages/StatementPrint';
 import { Inventory } from './pages/Inventory';
 import { Customers } from './pages/Customers';
 import { Suppliers } from './pages/Suppliers';
@@ -43,6 +45,7 @@ function App() {
       <Routes>
         <Route path="/print/invoice/:id" element={<InvoicePrint />} />
         <Route path="/print/credit-note/:id" element={<CreditNotePrint />} />
+        <Route path="/print/statement/:id" element={<StatementPrint />} />
         <Route element={<Layout />}>
           <Route path="/billing" element={<Billing />} />
           <Route path="/dashboard" element={<Dashboard />} />
@@ -52,6 +55,7 @@ function App() {
           <Route path="/assistant" element={<Assistant />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/accounts" element={<AccountsPage />} />
+          <Route path="/khata" element={<Khata />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/suppliers" element={<Suppliers />} />

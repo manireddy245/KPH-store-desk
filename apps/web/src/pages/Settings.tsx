@@ -56,6 +56,9 @@ interface StoreSettingsDto {
   storePlace: string;
   storePincode: string;
   tallyCompanyName: string;
+  creditDaysDefault: number;
+  reminderLanguage: 'te' | 'en';
+  storeUpiId: string;
   storePhone: string;
   storeGstin: string;
   stateCode: string;
@@ -91,6 +94,9 @@ function StoreSettings() {
       storePlace: s.storePlace,
       storePincode: s.storePincode,
       tallyCompanyName: s.tallyCompanyName,
+      creditDaysDefault: String(s.creditDaysDefault),
+      reminderLanguage: s.reminderLanguage,
+      storeUpiId: s.storeUpiId,
       storePhone: s.storePhone,
       storeGstin: s.storeGstin,
       stateCode: s.stateCode,
@@ -120,6 +126,9 @@ function StoreSettings() {
         storePlace: f.storePlace,
         storePincode: String(f.storePincode ?? '').trim(),
         tallyCompanyName: String(f.tallyCompanyName ?? '').trim(),
+        creditDaysDefault: Number(f.creditDaysDefault) || 0,
+        reminderLanguage: f.reminderLanguage === 'en' ? 'en' : 'te',
+        storeUpiId: String(f.storeUpiId ?? '').trim(),
         storePhone: f.storePhone,
         storeGstin: String(f.storeGstin).toUpperCase().trim(),
         stateCode: f.stateCode,
@@ -162,6 +171,18 @@ function StoreSettings() {
           </Field>
           <Field label="PIN code (for e-way bills)">
             <Input value={String(f.storePincode ?? '')} onChange={t('storePincode')} inputMode="numeric" maxLength={6} />
+          </Field>
+          <Field label="Credit days (default)" hint="A credit bill is overdue after this many days, unless the customer has their own">
+            <Input value={String(f.creditDaysDefault ?? '')} onChange={t('creditDaysDefault')} inputMode="numeric" />
+          </Field>
+          <Field label="WhatsApp reminder language">
+            <Select value={String(f.reminderLanguage ?? 'te')} onChange={t('reminderLanguage')}>
+              <option value="te">Telugu</option>
+              <option value="en">English</option>
+            </Select>
+          </Field>
+          <Field label="Shop UPI ID (optional)" hint="Added to reminders and statements as a pay link, e.g. kph@sbi">
+            <Input value={String(f.storeUpiId ?? '')} onChange={t('storeUpiId')} />
           </Field>
           <Field label="Company name in Tally" hint="Exactly as your CA's Tally shows it; blank = shop name" className="sm:col-span-2">
             <Input value={String(f.tallyCompanyName ?? '')} onChange={t('tallyCompanyName')} />

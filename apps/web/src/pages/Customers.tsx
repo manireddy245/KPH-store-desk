@@ -9,6 +9,7 @@ import type { CustomerRow } from '../lib/types';
 import { Page } from '../components/Layout';
 import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, cx, useDebounced, useToast } from '../components/ui';
 import { InvoiceModal } from './Sales';
+import { DuesPanel, WhatsAppButton } from '../components/KhataBits';
 
 const money = (p: number) => `₹${formatPaise(p)}`;
 
@@ -118,13 +119,17 @@ function CustomerForm({ open, customer, onClose }: { open: boolean; customer: Cu
       limit: customer?.credit_limit_paise != null ? formatPaise(customer.credit_limit_paise).replace(/,/g, '') : '',
       notes: customer?.notes ?? '',
       opening: '',
+      days: customer?.credit_days != null ? String(customer.credit_days) : '',
+      lang: customer?.language ?? '',
     });
   }, [open, customer]);
   const set = (k: string) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
   const submit = async () => {
     setError(null);
-    const body: Record<string, unknown> = { name: f.name, phone: f.phone || null, gstin: f.gstin || null, address: f.address || null, notes: f.notes || null };
+    const body: Record<string, unknown> = { name: f.name, phone: f.phone || null, gstin: f.gstin || null, address: f.address || null, notes: f.notes || null, language: f.lang || null };
     if (admin) {
+      if (f.days?.trim() && !/^\d{1,3}$/.test(f.days.trim())) return setError('Credit days must be a number of days');
+      body.creditDays = f.days?.trim() ? Number(f.days) : null;
       body.creditLimitPaise = f.limit?.trim() ? parseRupees(f.limit) : null;
       if (f.limit?.trim() && body.creditLimitPaise == null) return setError('Credit limit is not a valid amount');
       if (!customer && f.opening?.trim()) {
@@ -185,6 +190,18 @@ function CustomerForm({ open, customer, onClose }: { open: boolean; customer: Cu
             <Input value={f.limit ?? ''} onChange={set('limit')} inputMode="decimal" />
           </Field>
         )}
+        {admin && (
+          <Field label="Credit days" hint="Days before a credit bill is overdue. Blank = shop default">
+            <Input value={f.days ?? ''} onChange={set('days')} inputMode="numeric" />
+          </Field>
+        )}
+        <Field label="Reminder language">
+          <Select value={f.lang ?? ''} onChange={set('lang')}>
+            <option value="">Shop default</option>
+            <option value="te">Telugu</option>
+            <option value="en">English</option>
+          </Select>
+        </Field>
         {admin && !customer && (
           <Field label="Opening balance (₹ they already owe)" hint="For dues from before Store Desk">
             <Input value={f.opening ?? ''} onChange={set('opening')} inputMode="decimal" />
@@ -212,10 +229,10 @@ interface Statement {
   receipts: { id: number; number: string; receipt_date: string; mode: string; amount_paise: number; reference: string | null; status: string; user_name: string }[];
 }
 
-function CustomerDetail({ id, onClose, onEdit }: { id: number | null; onClose: () => void; onEdit: (c: CustomerRow) => void }) {
+export function CustomerDetail({ id, onClose, onEdit }: { id: number | null; onClose: () => void; onEdit: (c: CustomerRow) => void }) {
   const { can } = useSession();
   const q = useQuery({ queryKey: ['customer', id], queryFn: () => get<Statement>(`/api/customers/${id}`), enabled: id != null });
-  const [tab, setTab] = useState<'statement' | 'bills' | 'payments'>('statement');
+  const [tab, setTab] = useState<'dues' | 'statement' | 'bills' | 'payments'>('dues');
   const [payOpen, setPayOpen] = useState(false);
   const [invoiceId, setInvoiceId] = useState<number | null>(null);
   const d = q.data;
@@ -235,7 +252,8 @@ function CustomerDetail({ id, onClose, onEdit }: { id: number | null; onClose: (
                   Edit details
                 </Button>
               )}
-              <Button onClick={() => window.print()}>Print statement</Button>
+              <Button onClick={() => window.open(`/print/statement/${c.id}`, '_blank')}>Print statement</Button>
+              {can('payments.receive') && c.balance_paise > 0 && c.phone && <WhatsAppButton customerId={c.id} size="md" />}
               {can('payments.receive') && (
                 <Button variant="primary" onClick={() => setPayOpen(true)}>
                   Receive payment
@@ -261,6 +279,7 @@ function CustomerDetail({ id, onClose, onEdit }: { id: number | null; onClose: (
             <div role="tablist" className="flex gap-1 border-b border-line">
               {(
                 [
+                  ['dues', 'Dues'],
                   ['statement', 'Statement'],
                   ['bills', `Bills (${d.invoices.length})`],
                   ['payments', `Payments (${d.receipts.length})`],
@@ -271,6 +290,7 @@ function CustomerDetail({ id, onClose, onEdit }: { id: number | null; onClose: (
                 </button>
               ))}
             </div>
+            {tab === 'dues' && <DuesPanel customerId={c.id} />}
             {tab === 'statement' && (
               <div className="overflow-hidden rounded-[6px] border border-line">
                 <Table
@@ -381,7 +401,7 @@ function Stat({ k, v, tone }: { k: string; v: string; tone?: 'warn' }) {
   );
 }
 
-function ReceivePayment({ open, customer, onClose }: { open: boolean; customer: CustomerRow; onClose: () => void }) {
+export function ReceivePayment({ open, customer, onClose }: { open: boolean; customer: Pick<CustomerRow, 'id' | 'name' | 'balance_paise'>; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [amount, setAmount] = useState('');
@@ -400,12 +420,32 @@ function ReceivePayment({ open, customer, onClose }: { open: boolean; customer: 
     }
   }, [open, customer, ref]);
   const paise = parseRupees(amount);
+  const bills = useQuery({ queryKey: ['khata', 'open-bills', customer.id], queryFn: () => get<{ id: number; number: string; invoice_date: string; total_paise: number; due_paise: number; open_paise: number }[]>(`/api/customers/${customer.id}/open-bills`), enabled: open });
+  const [alloc, setAlloc] = useState<Record<number, string>>({});
+  useEffect(() => {
+    if (open) setAlloc({});
+  }, [open]);
+  const allocations = Object.entries(alloc)
+    .map(([id, v]) => ({ invoiceId: Number(id), amountPaise: parseRupees(v) ?? 0 }))
+    .filter((a) => a.amountPaise > 0);
+  const allocated = allocations.reduce((t, a) => t + a.amountPaise, 0);
+  const oldestFirst = () => {
+    let left = paise ?? 0;
+    const next: Record<number, string> = {};
+    for (const b of bills.data ?? []) {
+      if (left <= 0) break;
+      const take = Math.min(left, b.open_paise);
+      next[b.id] = (take / 100).toFixed(2);
+      left -= take;
+    }
+    setAlloc(next);
+  };
   const submit = async () => {
     if (paise == null || paise <= 0) return;
     setBusy(true);
     setError(null);
     try {
-      const r = await post<{ number: string; balancePaise: number }>('/api/receipts', { clientRef: ref.clientRef, customerId: customer.id, mode, amountPaise: paise, reference: reference || undefined });
+      const r = await post<{ number: string; balancePaise: number }>('/api/receipts', { clientRef: ref.clientRef, customerId: customer.id, mode, amountPaise: paise, reference: reference || undefined, allocations });
       toast({ tone: 'good', text: `Receipt ${r.number}: ${money(paise)} received from ${customer.name}. Balance now ${money(r.balancePaise)}.` });
       await qc.invalidateQueries({ queryKey: ['customer'] });
       await qc.invalidateQueries({ queryKey: ['customers'] });
@@ -424,7 +464,7 @@ function ReceivePayment({ open, customer, onClose }: { open: boolean; customer: 
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" busy={busy} disabled={paise == null || paise <= 0} onClick={submit}>
+          <Button variant="primary" busy={busy} disabled={paise == null || paise <= 0 || allocated > paise} onClick={submit}>
             Save payment
           </Button>
         </>
@@ -457,7 +497,34 @@ function ReceivePayment({ open, customer, onClose }: { open: boolean; customer: 
         </Field>
         {paise != null && paise > customer.balance_paise && customer.balance_paise >= 0 && <Notice tone="warn">This is more than the balance due. The extra is kept as an advance.</Notice>}
         {error && <Notice tone="bad">{error}</Notice>}
-        <p className="text-xs text-ink-3">Payments are recorded against the customer’s account (on account). Linking to specific bills comes in Phase 4.</p>
+        {(bills.data?.length ?? 0) > 0 && (
+          <div>
+            <div className="mb-1 flex items-center gap-2">
+              <b className="flex-1">Against which bills? (optional)</b>
+              <Button size="sm" onClick={oldestFirst} disabled={!paise}>
+                Oldest first
+              </Button>
+            </div>
+            <div className="flex max-h-[220px] flex-col divide-y divide-line-3 overflow-y-auto rounded-[6px] border border-line">
+              {bills.data!.map((b) => (
+                <div key={b.id} className="flex items-center gap-3 px-3 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="num font-semibold">{b.number}</div>
+                    <div className="text-[12px] text-ink-3">
+                      {fmtDate(b.invoice_date)} · still due {money(b.open_paise)} of {money(b.total_paise)}
+                    </div>
+                  </div>
+                  <div className="w-[110px] flex-none">
+                    <Input aria-label={`Pay against ${b.number}`} inputMode="decimal" className="num" placeholder="₹" value={alloc[b.id] ?? ''} onChange={(e) => setAlloc((a) => ({ ...a, [b.id]: e.target.value }))} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className={cx('mt-1 text-xs', paise != null && allocated > paise ? 'text-bad' : 'text-ink-3')}>
+              {allocated > 0 ? `Against bills ${money(allocated)} · on account ${money(Math.max((paise ?? 0) - allocated, 0))}` : 'Not marked against bills: it settles the oldest bills first.'}
+            </p>
+          </div>
+        )}
         <button type="submit" hidden />
       </form>
     </Modal>

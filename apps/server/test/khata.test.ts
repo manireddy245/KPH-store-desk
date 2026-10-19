@@ -75,6 +75,8 @@ describe('receipts against bills, ageing, overdue', () => {
     const r = await counter.post('/api/receipts', { customerId: cid, mode: 'upi', amountPaise: 150_000, allocations: [{ invoiceId: mid.id, amountPaise: 100_000 }] });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
 
+    const openNow = (await counter.get(`/api/customers/${cid}/open-bills`)).body;
+    expect(openNow.find((b: { id: number }) => b.id === old.id)).toMatchObject({ due_paise: 118_000, open_paise: 68_000 });
     const d = (await counter.get(`/api/customers/${cid}/dues`)).body;
     // owes 4,720 − 1,500 = 3,220: old 1,180 − 500 on account = 680 (90+), mid 2,360 − 1,000 = 1,360 (31–60), fresh 1,180 (0–30)
     expect(d.balancePaise).toBe(322_000);

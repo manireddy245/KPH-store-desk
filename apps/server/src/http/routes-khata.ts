@@ -40,7 +40,11 @@ export async function registerKhataRoutes(app: FastifyInstance, { db }: Shared) 
   app.get('/api/customers/:id/open-bills', async (req) => {
     const ctx = ctxOf(req);
     if (!can(ctx, 'payments.receive') && !can(ctx, 'reports.view')) throw new AppError(403, 'FORBIDDEN', 'You do not have permission to see this');
-    return (await openCreditBills(db.app, z.object({ id }).parse(req.params).id)).filter((b) => b.due_paise > 0);
+    const cid = z.object({ id }).parse(req.params).id;
+    // open_paise: what is really still due after payments made "on account" (oldest bills first)
+    const dues = await customerDues(db.app, ctx, cid);
+    const open = new Map(dues.bills.filter((b) => b.id != null).map((b) => [b.id!, b.duePaise]));
+    return (await openCreditBills(db.app, cid)).map((b) => ({ ...b, open_paise: open.get(b.id) ?? 0 })).filter((b) => b.open_paise > 0);
   });
 
   app.get('/api/customers/:id/statement', async (req, reply) => {

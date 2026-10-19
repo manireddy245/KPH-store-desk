@@ -19,7 +19,7 @@ import {
   listLedgers,
   lockOpening,
   openingBalances,
-  outstandingPurchases,
+  openPurchases,
   paySupplier,
   setOpening,
   supplierAgeing,
@@ -174,7 +174,7 @@ export async function registerAccountRoutes(app: FastifyInstance, { db, live }: 
   app.get('/api/suppliers/:id/outstanding', async (req) => {
     const ctx = ctxOf(req);
     if (!can(ctx, 'payments.make') && !can(ctx, 'reports.view') && !can(ctx, 'stock.adjust')) throw new AppError(403, 'FORBIDDEN', 'You do not have permission to see this');
-    return outstandingPurchases(db.app, z.object({ id }).parse(req.params).id);
+    return openPurchases(db.app, z.object({ id }).parse(req.params).id);
   });
 
   app.post('/api/money/payments', async (req) => {
