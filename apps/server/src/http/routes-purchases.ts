@@ -45,6 +45,8 @@ export async function registerPurchaseRoutes(app: FastifyInstance, { db, live }:
       amountMode: z.enum(['excl', 'incl']).optional(),
       gstRateBp: z.number().int().min(0).max(10000),
       hsn: z.string().nullable().optional(),
+      batchCode: z.string().max(40).nullable().optional(),
+      packedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
     });
     const b = z
       .object({

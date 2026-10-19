@@ -11,3 +11,4 @@ grant delete on product_aliases to storedesk_app;
 grant delete on product_units to storedesk_app;
 grant delete on tally_names to storedesk_app;
 grant delete on partner_reward_rules to storedesk_app;
+grant delete on quotation_lines to storedesk_app;

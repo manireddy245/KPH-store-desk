@@ -23,6 +23,9 @@ interface LineDraft {
   unitCode?: string | null;
   /** Actual count received in our base unit (overrides the conversion). */
   countText?: string;
+  /** Batch / packing date printed on the bags (stock-age tracked products such as cement). */
+  batchCode?: string;
+  packedOn?: string;
   gstText: string;
   productId: number | null;
   newProduct: { name: string; unitCode: string } | null;
@@ -370,6 +373,8 @@ function Review({
           amountMode,
           gstRateBp: r.gst!,
           hsn: r.l.hsn || null,
+          batchCode: r.p?.track_batches ? r.l.batchCode?.trim() || null : undefined,
+          packedOn: r.p?.track_batches ? r.l.packedOn || null : undefined,
         })),
       });
       onSaved(r);
@@ -501,6 +506,15 @@ function Review({
                       <MatchBadge kind={r.l.newProduct ? 'new' : r.l.productId ? r.l.match : 'none'} />
                       {r.l.lastCostPaise != null && <span className="text-ink-3">last cost ₹{formatPaise(r.l.lastCostPaise)}</span>}
                     </div>
+                    {r.p?.track_batches && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                        <input aria-label="Batch on the bags" placeholder="Batch" value={r.l.batchCode ?? ''} onChange={(e) => setLine(r.l.key, { batchCode: e.target.value })} className="h-7 w-24 rounded-[4px] border border-line px-1.5" />
+                        <label className="flex items-center gap-1 text-ink-3">
+                          packed
+                          <input aria-label="Packing date on the bags" type="date" value={r.l.packedOn ?? ''} onChange={(e) => setLine(r.l.key, { packedOn: e.target.value })} className="h-7 rounded-[4px] border border-line px-1" />
+                        </label>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <div className="eyebrow lg:hidden">Qty</div>

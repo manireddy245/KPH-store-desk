@@ -129,7 +129,7 @@ export async function listProducts(
       select p.id, p.sku, p.name, p.category_id, c.name as category_name, p.brand_id, b.name as brand_name, p.unit_code,
              p.hsn, p.gst_rate_bp, p.sale_price_paise, p.price_includes_tax, p.cost_price_paise, p.mrp_paise,
              p.reorder_level_milli, p.max_disc_type, p.max_disc_value, c.max_disc_type as cat_disc_type,
-             c.max_disc_value as cat_disc_value, p.active, p.is_sample, p.updated_at, p.contents_milli, p.contents_unit,
+             c.max_disc_value as cat_disc_value, p.active, p.is_sample, p.updated_at, p.contents_milli, p.contents_unit, p.on_rate_board, p.track_batches,
              coalesce((select json_agg(json_build_object('unit_code', u.unit_code, 'factor_num', u.factor_num, 'factor_den', u.factor_den,
                         'for_sale', u.for_sale, 'for_purchase', u.for_purchase, 'price_paise', u.price_paise) order by u.factor_num::numeric / u.factor_den)
                        from product_units u where u.product_id = p.id), '[]'::json) as units,

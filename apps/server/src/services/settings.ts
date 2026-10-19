@@ -28,6 +28,11 @@ export interface StoreSettings {
   expensePrefix: string;
   contraPrefix: string;
   journalPrefix: string;
+  quotePrefix: string;
+  challanPrefix: string;
+  /** Cement older than this many days (from packing / receipt) is flagged. */
+  oldStockDays: number;
+  quoteValidDays: number;
   /** Go-live date: opening balances are as at the start of this day. */
   openingDate: string;
   /** Set once the opening balances are confirmed; they can't be changed after that. */
@@ -74,6 +79,10 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   expensePrefix: 'EXP',
   contraPrefix: 'CTR',
   journalPrefix: 'JRN',
+  quotePrefix: 'QTN',
+  challanPrefix: 'DC',
+  oldStockDays: 60,
+  quoteValidDays: 15,
   openingDate: '',
   openingLocked: false,
   tallyCompanyName: '',

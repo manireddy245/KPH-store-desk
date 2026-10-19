@@ -12,6 +12,7 @@ import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Select, S
 import { SalesReturnModal } from './Returns';
 import { EwayModal } from '../components/Eway';
 import { PartnerPicker, type PartnerPick } from '../components/PartnerBits';
+import { DeliveryModal } from './Operations';
 
 export function Sales() {
   const [params, setParams] = useSearchParams();
@@ -130,6 +131,7 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
   const [returnOpen, setReturnOpen] = useState(false);
   const [ewayOpen, setEwayOpen] = useState(false);
   const [tagOpen, setTagOpen] = useState(false);
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [tagPartner, setTagPartner] = useState<PartnerPick | null>(null);
   const [tagSite, setTagSite] = useState<number | null>(null);
   const saveTag = async () => {
@@ -185,7 +187,7 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
   return (
     <>
       <Modal
-        open={id != null && !cancelOpen && !returnOpen && !ewayOpen && !tagOpen}
+        open={id != null && !cancelOpen && !returnOpen && !ewayOpen && !tagOpen && !deliveryOpen}
         onClose={onClose}
         title={d ? `Bill ${d.number}` : 'Bill'}
         width={860}
@@ -200,6 +202,7 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
                   Cancel bill…
                 </Button>
               )}
+              {d.status === 'posted' && (can('billing.create') || can('stock.adjust')) && <Button onClick={() => setDeliveryOpen(true)}>Delivery…</Button>}
               {d.status === 'posted' && can('billing.create') && (
                 <Button onClick={() => setEwayOpen(true)}>
                   {d.transport?.ewb_no ? `EWB ${d.transport.ewb_no}` : ewayNeeded({ taxablePaise: d.taxable_paise, cgstPaise: d.cgst_paise, sgstPaise: d.sgst_paise, igstPaise: d.igst_paise }) && !d.transport?.not_needed_reason ? 'E-way bill needed…' : 'E-way bill…'}
@@ -310,6 +313,7 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
       </Modal>
       <SalesReturnModal invoice={d ?? null} open={returnOpen} onClose={() => setReturnOpen(false)} />
       {d && <EwayModal invoiceId={d.id} open={ewayOpen} onClose={() => setEwayOpen(false)} />}
+      {d && <DeliveryModal invoiceId={d.id} open={deliveryOpen} onClose={() => setDeliveryOpen(false)} />}
       <Modal open={tagOpen} onClose={() => setTagOpen(false)} title="Tag a partner" footer={<><Button variant="ghost" onClick={() => setTagOpen(false)}>Cancel</Button><Button variant="primary" disabled={!tagPartner} onClick={() => void saveTag()}>Tag partner</Button></>}>
         <PartnerPicker partner={tagPartner} siteId={tagSite} onChange={(p, site) => (setTagPartner(p), setTagSite(site))} />
         <p className="mt-2 text-[12px] text-ink-3">Their reward for this bill is credited now.</p>

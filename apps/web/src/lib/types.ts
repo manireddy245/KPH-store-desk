@@ -14,6 +14,8 @@ export interface ProductRow {
   cost_price_paise?: number | null;
   contents_milli: number | null;
   contents_unit: string | null;
+  on_rate_board?: boolean;
+  track_batches?: boolean;
   units: ProductUnit[];
   mrp_paise: number | null;
   reorder_level_milli: number | null;

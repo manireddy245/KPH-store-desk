@@ -22,7 +22,7 @@ import {
   type SupplyType,
 } from '@kph/core';
 import { ApiError, del, get, post, put, qs, store } from '../lib/api';
-import { MODE_LABEL, uuid } from '../lib/format';
+import { MODE_LABEL, fmtDate, uuid } from '../lib/format';
 import { useOverride } from '../lib/override';
 import { useSession } from '../lib/session';
 import type { AssistantBillCard, CustomerRow, ProductRow } from '../lib/types';
@@ -80,6 +80,13 @@ export function Billing() {
   const draftKey = `kph.draft.${store.workspace}.${boot?.device?.id}.${user?.userId}`;
 
   const products = useQuery({ queryKey: ['products', 'billing'], queryFn: () => get<ProductRow[]>('/api/products') });
+  // Cement: tell the counter which bags to send out first.
+  const stockAge = useQuery({
+    queryKey: ['ops', 'age'],
+    queryFn: () => get<{ warnDays: number; products: { productId: number; oldest: { batch: string | null; packedOn: string | null; received: string; ageDays: number } | null; warn: boolean }[] }>('/api/stock-age'),
+    staleTime: 300_000,
+  });
+  const ageOf = useMemo(() => new Map((stockAge.data?.products ?? []).map((p) => [p.productId, p])), [stockAge.data]);
   const byId = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, p])), [products.data]);
 
   // ------------------------------------------------------------ draft (never lose a half-made bill)
@@ -504,6 +511,12 @@ export function Billing() {
                           <span className={r.short ? 'font-bold text-bad' : r.available <= 0 ? 'text-bad' : 'text-good'}>
                             {r.short ? `only ${formatQty(Math.max(0, r.available))} ${r.p.unit_code} in stock` : `${formatQty(r.available)} ${r.p.unit_code} in stock`}
                           </span>
+                        </div>
+                      )}
+                      {r.p && ageOf.get(r.p.id)?.oldest && (
+                        <div className={cx('text-xs', ageOf.get(r.p.id)!.warn ? 'font-semibold text-warn-ink' : 'text-ink-3')}>
+                          Send oldest first: {ageOf.get(r.p.id)!.oldest!.batch ?? 'stock'} ·{' '}
+                          {ageOf.get(r.p.id)!.oldest!.packedOn ? `packed ${fmtDate(ageOf.get(r.p.id)!.oldest!.packedOn)}` : `arrived ${fmtDate(ageOf.get(r.p.id)!.oldest!.received)}`} ({ageOf.get(r.p.id)!.oldest!.ageDays} days)
                         </div>
                       )}
                       {expanded === r.l.key && r.result && r.p && (

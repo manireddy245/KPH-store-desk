@@ -43,6 +43,9 @@ export interface PurchaseLineInput {
   amountMode?: 'excl' | 'incl';
   gstRateBp: number;
   hsn?: string | null;
+  /** Batch / packing date printed on the bags (cement), for oldest-first selling. */
+  batchCode?: string | null;
+  packedOn?: string | null;
 }
 
 function lineTaxable(l: PurchaseLineInput): number {
@@ -210,6 +213,8 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
           bill_unit_code: c.billUnit,
           bill_qty_milli: c.l.qtyMilli,
           amount_mode: c.l.amountMode ?? 'excl',
+          batch_code: c.l.batchCode?.trim() || null,
+          packed_on: c.l.packedOn || null,
           unit_cost_paise: mulDivRound(c.l.taxablePaise, 1000, c.base),
           taxable_paise: c.l.taxablePaise,
           gst_rate_bp: c.l.gstRateBp,
