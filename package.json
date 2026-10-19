@@ -1,0 +1,20 @@
+{
+  "name": "kph-store-desk",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Kanakapatnam Store Desk — billing, stock and accounts for Kanakapatnam Paints and Hardwares",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @kph/server --filter @kph/web dev",
+    "build": "pnpm --filter @kph/web build",
+    "start": "pnpm --filter @kph/server start",
+    "test": "pnpm -r --workspace-concurrency=1 test",
+    "typecheck": "pnpm -r typecheck",
+    "db:reset-sample": "pnpm --filter @kph/server db:reset-sample",
+    "backup": "pnpm --filter @kph/server backup",
+    "restore": "pnpm --filter @kph/server restore"
+  }
+}
