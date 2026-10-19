@@ -19,6 +19,7 @@ import { registerProfitRoutes } from './routes-profit.js';
 import { registerKhataRoutes } from './routes-khata.js';
 import { registerPartnerRoutes } from './routes-partners.js';
 import { registerOperationsRoutes } from './routes-operations.js';
+import { registerStockRoutes } from './routes-stock.js';
 import type { AssistantModel } from '../services/assistant.js';
 import { registerReturnRoutes } from './routes-returns.js';
 import { registerSalesRoutes } from './routes-sales.js';
@@ -126,6 +127,7 @@ export async function buildApp(deps: AppDeps) {
   await registerKhataRoutes(app, shared);
   await registerPartnerRoutes(app, shared);
   await registerOperationsRoutes(app, shared);
+  await registerStockRoutes(app, shared);
   await registerReturnRoutes(app, shared);
 
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true, workspace: deps.db.name, time: new Date().toISOString() }));

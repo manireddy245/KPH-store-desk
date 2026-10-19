@@ -277,3 +277,61 @@ export function ChallanPrint() {
     </Sheet>
   );
 }
+
+interface PODoc {
+  number: string;
+  created_at: string;
+  expected_on: string | null;
+  status: string;
+  supplier_name: string;
+  supplier_phone: string | null;
+  supplier_address: string | null;
+  supplier_gstin: string | null;
+  notes: string | null;
+  lines: { product_id: number; name: string; sku: string; unit_code: string; qty_milli: number }[];
+  store: Store;
+}
+
+export function PurchaseOrderPrint() {
+  const { id } = useParams();
+  const q = useQuery({ queryKey: ['stock', 'po-print', id], queryFn: () => get<PODoc>(`/api/purchase-orders/${id}`) });
+  const d = q.data;
+  if (!d) return <div className="p-10"><Spinner /></div>;
+  return (
+    <Sheet doc={d.number}>
+      <Letterhead store={d.store} title="PURCHASE ORDER" telugu="కొనుగోలు ఆర్డర్" sub={`${d.number} · ${fmtDate(d.created_at.slice(0, 10))}`} />
+      <div>
+        <div className="text-[8pt] font-bold uppercase tracking-[.14em] text-ink-3">To</div>
+        <div className="text-[11pt] font-bold">{d.supplier_name}</div>
+        {d.supplier_address && <div>{d.supplier_address}</div>}
+        {d.supplier_phone && <div>Phone {d.supplier_phone}</div>}
+        {d.supplier_gstin && <div>GSTIN {d.supplier_gstin}</div>}
+      </div>
+      <table className={TABLE}>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Item</th>
+            <th>Code</th>
+            <th className="!text-right">Quantity</th>
+          </tr>
+        </thead>
+        <tbody className="num">
+          {d.lines.map((l, i) => (
+            <tr key={l.product_id}>
+              <td>{i + 1}</td>
+              <td>{l.name}</td>
+              <td>{l.sku}</td>
+              <td className="text-right font-bold">
+                {formatQty(l.qty_milli)} {l.unit_code}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {d.expected_on && <div>Please deliver by {fmtDate(d.expected_on)}.</div>}
+      {d.notes && <div>Note: {d.notes}</div>}
+      <div className="mt-12 text-right text-[9pt]">For {d.store.name}</div>
+    </Sheet>
+  );
+}

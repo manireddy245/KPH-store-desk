@@ -33,6 +33,13 @@ export interface StoreSettings {
   /** Cement older than this many days (from packing / receipt) is flagged. */
   oldStockDays: number;
   quoteValidDays: number;
+  /** Stock insights: sales period looked at, days without a sale for "dead", default target days and supplier lead time. */
+  insightDays: number;
+  deadStockDays: number;
+  targetDaysDefault: number;
+  leadDaysDefault: number;
+  poPrefix: string;
+  auditPrefix: string;
   /** Go-live date: opening balances are as at the start of this day. */
   openingDate: string;
   /** Set once the opening balances are confirmed; they can't be changed after that. */
@@ -83,6 +90,12 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   challanPrefix: 'DC',
   oldStockDays: 60,
   quoteValidDays: 15,
+  insightDays: 30,
+  deadStockDays: 60,
+  targetDaysDefault: 15,
+  leadDaysDefault: 3,
+  poPrefix: 'PO',
+  auditPrefix: 'SA',
   openingDate: '',
   openingLocked: false,
   tallyCompanyName: '',

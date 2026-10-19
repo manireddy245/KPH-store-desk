@@ -8,3 +8,4 @@ export * from './gst.js';
 export * from './units.js';
 export * from './gstreturns.js';
 export * from './khata.js';
+export * from './insights.js';

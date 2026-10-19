@@ -8,6 +8,7 @@ import { preparePage, type PreparedPage } from '../lib/images';
 import { useSession } from '../lib/session';
 import type { SupplierRow } from '../lib/types';
 import { Page } from '../components/Layout';
+import { CounterClose } from '../components/CounterClose';
 import { Badge, Button, Checkbox, ConfirmTyped, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, cx, useToast } from '../components/ui';
 
 /**
@@ -15,8 +16,9 @@ import { Badge, Button, Checkbox, ConfirmTyped, Empty, Field, Input, Modal, Noti
  * supplier dues, day-end cash count, and setup (bank accounts, expense heads, opening balances).
  */
 
-type Tab = 'pay' | 'expense' | 'contra' | 'journal' | 'books' | 'dues' | 'cash' | 'setup';
+type Tab = 'pay' | 'expense' | 'contra' | 'journal' | 'books' | 'dues' | 'cash' | 'counter' | 'setup';
 const TABS: { id: Tab; label: string; perm: Permission[] }[] = [
+  { id: 'counter', label: 'Close counter', perm: ['payments.receive', 'reports.view'] },
   { id: 'cash', label: 'Cash count', perm: ['payments.receive', 'payments.make'] },
   { id: 'expense', label: 'Expenses', perm: ['expenses.create'] },
   { id: 'pay', label: 'Pay supplier', perm: ['payments.make'] },
@@ -78,6 +80,7 @@ export function AccountsPage() {
       {tab === 'books' && <Books />}
       {tab === 'dues' && <SupplierDues onPay={(id) => go('pay', { supplier: String(id) })} />}
       {tab === 'cash' && <CashCount />}
+      {tab === 'counter' && <CounterClose />}
       {tab === 'setup' && <Setup />}
     </Page>
   );

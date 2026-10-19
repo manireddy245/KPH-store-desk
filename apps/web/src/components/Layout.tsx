@@ -11,6 +11,7 @@ export const NAV: { to: string; label: string; perm?: Permission | Permission[] 
   { to: '/sales', label: 'Sales' },
   { to: '/operations', label: 'Operations', perm: ['billing.create', 'stock.adjust'] },
   { to: '/purchases', label: 'Purchases', perm: 'stock.adjust' },
+  { to: '/stock', label: 'Stock', perm: ['stock.adjust', 'reports.view'] },
   { to: '/inventory', label: 'Inventory' },
   { to: '/customers', label: 'Customers' },
   { to: '/khata', label: 'Khata', perm: ['payments.receive', 'reports.view'] },

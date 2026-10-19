@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Insights } from './Stock';
 import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { exclFromIncl, formatPaise, formatPercent, formatQty, mulDivRound, parsePercent, parseQty, parseRupees, toBase } from '@kph/core';
@@ -313,6 +314,8 @@ function Review({
   const qc = useQueryClient();
 
   const amountMode = draft.amountMode ?? 'excl';
+  const insights = useQuery({ queryKey: ['stock', 'insights'], queryFn: () => get<Insights>('/api/insights/stock'), staleTime: 300_000 });
+  const insightOf = new Map((insights.data?.rows ?? []).map((r) => [r.productId, r]));
   const rows = draft.lines.map((l) => {
     const qty = parseQty(l.qtyText);
     const typed = parseRupees(l.amountText);
@@ -334,8 +337,13 @@ function Review({
     const ourUnit = p?.unit_code ?? l.newProduct?.unitCode ?? null;
     const billUnit = unitCode(l.billUnit);
     const unitWarn = billUnit && ourUnit && billUnit !== chosenUnit && billUnit !== ourUnit ? `Bill counts in ${l.billUnit}; enter the quantity in ${chosenUnit ?? ourUnit}${p ? '' : ''}.` : null;
+    const ins = insightOf.get(l.productId ?? -1);
+    const overWarn =
+      ins && base != null && (ins.movement === 'slow' || ins.movement === 'dead') && Math.max(ins.stockMilli, 0) + base > ins.usualMaxMilli
+        ? `${ins.movement === 'dead' ? 'Dead stock' : 'Slow mover'}: ${formatQty(Math.max(ins.stockMilli, 0))} ${ins.unit} already in stock${ins.lastSale ? `, last sold ${ins.daysSinceSale} days ago` : ', never sold'} — buying ${formatQty(base)} more is above its usual level.`
+        : null;
     const costWarn = unitCost != null && l.lastCostPaise && Math.abs(unitCost - l.lastCostPaise) / l.lastCostPaise > 0.25 ? `Cost ₹${formatPaise(unitCost)} is far from last time (₹${formatPaise(l.lastCostPaise)})` : null;
-    return { l, p, qty, typed, amount, gst, ok, half, igst, tax, unitCost, ourUnit, unitWarn, costWarn, buyUnits, chosenUnit, base, converted, pu };
+    return { l, p, qty, typed, amount, gst, ok, half, igst, tax, unitCost, ourUnit, unitWarn, costWarn, overWarn, buyUnits, chosenUnit, base, converted, pu };
   });
   const taxable = rows.reduce((s, r) => s + (r.ok ? r.amount! : 0), 0);
   const cgst = draft.supplyType === 'intra' ? rows.reduce((s, r) => s + (r.ok ? r.half : 0), 0) : 0;
@@ -564,9 +572,9 @@ function Review({
                     <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
                   </button>
                 </div>
-                {[...r.l.warnings, r.unitWarn, r.costWarn].filter(Boolean).length > 0 && (
+                {[...r.l.warnings, r.unitWarn, r.costWarn, r.overWarn].filter(Boolean).length > 0 && (
                   <ul className="mt-2 flex flex-col gap-0.5 text-xs text-warn">
-                    {[...new Set([...r.l.warnings, r.unitWarn, r.costWarn].filter(Boolean))].map((w) => (
+                    {[...new Set([...r.l.warnings, r.unitWarn, r.costWarn, r.overWarn].filter(Boolean))].map((w) => (
                       <li key={w}>! {w}</li>
                     ))}
                   </ul>

@@ -8,6 +8,7 @@ import { useSession } from '../lib/session';
 import { Page } from '../components/Layout';
 import { Badge, Card, Empty, Notice, PageTitle, Spinner, cx } from '../components/ui';
 import { WhatsAppButton } from '../components/KhataBits';
+import type { Insights } from './Stock';
 
 interface Dash {
   today: {
@@ -45,6 +46,9 @@ export function Dashboard() {
     enabled: showDues,
     refetchInterval: 300_000,
   });
+  const showStock = can('stock.adjust') || can('reports.view');
+  const ins = useQuery({ queryKey: ['stock', 'insights'], queryFn: () => get<Insights>('/api/insights/stock'), enabled: showStock, refetchInterval: 600_000 });
+  const isMonday = new Date(Date.now() + 5.5 * 3600000).getUTCDay() === 1;
   const today = new Date(Date.now() + 5.5 * 3600000);
   const heading = today.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
 
@@ -167,6 +171,36 @@ export function Dashboard() {
                       </div>
                     ))}
                   </>
+                )}
+              </Card>
+            )}
+            {showStock && ins.data && (
+              <Card title={isMonday ? 'Stock update (weekly)' : 'Stock update'} className="flex-[1_1_380px]" actions={<Link to="/stock" className="text-sm font-semibold underline">Stock</Link>}>
+                {[
+                  ['Will run out in 3 days', ins.data.daily.runOut3, true],
+                  ['Will run out in 7 days', ins.data.daily.runOut7, false],
+                  ['Fast movers below target', ins.data.daily.fastBelowTarget, false],
+                  ['Newly dead stock', ins.data.daily.newlyDead, false],
+                ].map(([label, items, urgent]) => (
+                  <div key={label as string} className="flex items-start justify-between gap-2 border-t border-line-3 py-2 text-sm first:border-t-0">
+                    <span className="min-w-0">
+                      {label as string}
+                      {(items as Insights['rows']).length > 0 && <span className="block truncate text-[12px] text-ink-3">{(items as Insights['rows']).slice(0, 4).map((r) => `${r.name}${r.daysLeft != null ? ` (${r.daysLeft} d)` : ''}`).join(', ')}</span>}
+                    </span>
+                    <span className={cx('num font-bold', (items as Insights['rows']).length && urgent ? 'text-bad' : '')}>{(items as Insights['rows']).length}</span>
+                  </div>
+                ))}
+                {ins.data.daily.topSlowByValue.length > 0 && (
+                  <div className="border-t border-line-3 py-2 text-sm">
+                    Top slow movers by money stuck
+                    <span className="block text-[12px] text-ink-3">{ins.data.daily.topSlowByValue.map((r) => `${r.name}${r.valuePaise != null ? ` ₹${formatPaise(r.valuePaise).replace(/\.\d\d$/, '')}` : ''}`).join(', ')}</span>
+                  </div>
+                )}
+                {isMonday && (
+                  <div className="border-t border-line-3 py-2 text-sm">
+                    This week: {ins.data.weekly.spedUp.length} items sped up, {ins.data.weekly.slowedDown.length} slowed down
+                    {ins.data.weekly.slowDeadValuePaise != null && <> · slow &amp; dead stock worth {rupees(ins.data.weekly.slowDeadValuePaise)}</>}
+                  </div>
                 )}
               </Card>
             )}

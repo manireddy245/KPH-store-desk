@@ -20,7 +20,8 @@ import { AccountsPage } from './pages/Accounts';
 import { Khata } from './pages/Khata';
 import { Partners } from './pages/Partners';
 import { Operations } from './pages/Operations';
-import { ChallanPrint, QuotePrint } from './pages/OpsPrint';
+import { ChallanPrint, PurchaseOrderPrint, QuotePrint } from './pages/OpsPrint';
+import { Stock } from './pages/Stock';
 import { StatementPrint } from './pages/StatementPrint';
 import { Inventory } from './pages/Inventory';
 import { Customers } from './pages/Customers';
@@ -51,6 +52,7 @@ function App() {
         <Route path="/print/statement/:id" element={<StatementPrint />} />
         <Route path="/print/quote/:id" element={<QuotePrint />} />
         <Route path="/print/challan/:id" element={<ChallanPrint />} />
+        <Route path="/print/po/:id" element={<PurchaseOrderPrint />} />
         <Route element={<Layout />}>
           <Route path="/billing" element={<Billing />} />
           <Route path="/dashboard" element={<Dashboard />} />
@@ -63,6 +65,7 @@ function App() {
           <Route path="/khata" element={<Khata />} />
           <Route path="/partners" element={<Partners />} />
           <Route path="/operations" element={<Operations />} />
+          <Route path="/stock" element={<Stock />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/suppliers" element={<Suppliers />} />
