@@ -149,3 +149,54 @@ export interface Category {
   active: boolean;
   product_count: number;
 }
+
+// ------------------------------------------------------------------ assistant
+
+export interface AssistantScan {
+  scanId: number;
+  pageCount: number;
+  supplier: { name: string | null; gstin: string | null; matchedId: number | null; matchedBy: string };
+  invoice: { number: string | null; date: string | null; isInterstate: boolean | null };
+  lines: {
+    description: string;
+    hsn: string | null;
+    qtyMilli: number | null;
+    billUnit: string | null;
+    taxablePaise: number | null;
+    gstRateBp: number | null;
+    match: { kind: 'remembered' | 'sku' | 'name' | 'none'; productId: number | null };
+    lastCostPaise: number | null;
+    warnings: string[];
+  }[];
+  freightPaise: number | null;
+  grandTotalPaise: number | null;
+  notes: string | null;
+  duplicateOf: string | null;
+}
+
+type CardBase = { status: 'proposed' | 'done' | 'dismissed'; result?: { label: string; link?: string } };
+export type AssistantBillCard = CardBase & {
+  kind: 'bill';
+  customer: Pick<CustomerRow, 'id' | 'name' | 'phone' | 'address' | 'gstin' | 'balance_paise' | 'credit_limit_paise'> | null;
+  walkinName: string | null;
+  mode: 'cash' | 'upi' | 'card' | 'credit';
+  lines: { productId: number; name: string; unitCode: string; qtyMilli: number; stockMilli: number }[];
+  warnings: string[];
+};
+export type AssistantCard =
+  | (CardBase & { kind: 'purchase'; scan: AssistantScan })
+  | AssistantBillCard
+  | (CardBase & { kind: 'stock_adjust'; productId: number; name: string; unitCode: string; currentMilli: number; deltaMilli: number; reason: string })
+  | (CardBase & { kind: 'customer'; name: string; phone: string | null; gstin: string | null; address: string | null; warnings: string[] })
+  | (CardBase & { kind: 'payment'; customerId: number; name: string; balancePaise: number; amountPaise: number; mode: 'cash' | 'upi' | 'card' | 'bank' | 'cheque' });
+
+export interface AssistantMessage {
+  id: number;
+  at: string;
+  role: 'user' | 'assistant';
+  text: string;
+  heard: string | null;
+  files: { kind: 'image' | 'pdf' | 'audio'; mimeType: string; file: string }[];
+  cards: AssistantCard[];
+  error: string | null;
+}

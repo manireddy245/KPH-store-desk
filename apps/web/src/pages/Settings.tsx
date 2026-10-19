@@ -189,10 +189,10 @@ function StoreSettings() {
           <Field label="Purchase number prefix" hint={`Our purchase numbers look like ${String(f.purchasePrefix || 'PUR')}/26-27/000001`}>
             <Input value={String(f.purchasePrefix ?? '')} onChange={t('purchasePrefix')} maxLength={4} />
           </Field>
-          <Field label="Scanner model (Google Gemini)" hint="Change only if Google retires this model">
+          <Field label="Gemini model (scanner and assistant)" hint="Change only if Google retires this model">
             <Input value={String(f.geminiModel ?? '')} onChange={t('geminiModel')} />
           </Field>
-          <Field label="Gemini API key (for the invoice scanner)" hint={q.data.geminiApiKeySet ? 'A key is saved. Type a new one to replace it.' : 'Not set. Kept on this server only; never included in backups.'} className="sm:col-span-2">
+          <Field label="Gemini API key (invoice scanner and assistant)" hint={q.data.geminiApiKeySet ? 'A key is saved. Type a new one to replace it.' : 'Not set. Kept on this server only; never included in backups.'} className="sm:col-span-2">
             <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
           </Field>
         </div>

@@ -17,7 +17,7 @@ export interface Boot {
   device: { id: number; name: string; status: 'pending' | 'approved' | 'revoked' } | null;
   users: Tile[];
   approvers: Tile[];
-  settings: { idleLockMinutes: number; discountHintEnabled: boolean; salesPriceMode: 'excl' | 'incl'; purchasePriceMode: 'excl' | 'incl'; stateCode: string };
+  settings: { idleLockMinutes: number; discountHintEnabled: boolean; salesPriceMode: 'excl' | 'incl'; purchasePriceMode: 'excl' | 'incl'; stateCode: string; hasGeminiKey?: boolean };
   session: SessionUser | null;
 }
 

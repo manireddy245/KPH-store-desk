@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   B2C_DETAILS_THRESHOLD_PAISE,
@@ -24,7 +25,7 @@ import { ApiError, del, get, post, put, qs, store } from '../lib/api';
 import { MODE_LABEL, uuid } from '../lib/format';
 import { useOverride } from '../lib/override';
 import { useSession } from '../lib/session';
-import type { CustomerRow, ProductRow } from '../lib/types';
+import type { AssistantBillCard, CustomerRow, ProductRow } from '../lib/types';
 import { Button, Field, Input, Kbd, Modal, Notice, cx, useDebounced, useToast } from '../components/ui';
 
 type Mode = 'cash' | 'upi' | 'card' | 'credit';
@@ -114,6 +115,26 @@ export function Billing() {
     }, 1500);
     return () => clearTimeout(t);
   }, [draft, draftKey]);
+
+  // A bill drafted by the assistant: its lines are added here for a person to check and save.
+  const location = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    const card = (location.state as { assistantBill?: AssistantBillCard } | null)?.assistantBill;
+    if (!card) return;
+    navigate(location.pathname, { replace: true, state: null });
+    setDraft((d) => ({
+      ...d,
+      customer: d.customer ?? card.customer,
+      walkinName: d.customer || d.walkinName ? d.walkinName : (card.walkinName ?? ''),
+      mode: d.lines.length ? d.mode : card.mode,
+      lines: [
+        ...d.lines,
+        ...card.lines.map((l) => ({ key: uuid(), productId: l.productId, qtyText: String(l.qtyMilli / 1000), discText: '', rateText: null, unitCode: l.unitCode, mode: d.billMode ?? boot?.settings.salesPriceMode ?? 'excl' })),
+      ],
+    }));
+    toast({ tone: 'good', text: `Added ${card.lines.length} item${card.lines.length === 1 ? '' : 's'} from the assistant — check and save the bill.` });
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ------------------------------------------------------------ line maths
   const canOver = can('billing.discount_over_limit');

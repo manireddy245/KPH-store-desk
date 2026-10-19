@@ -7,6 +7,7 @@ import { Logo, SampleBanner, cx } from './ui';
 export const NAV: { to: string; label: string; perm?: Permission | Permission[] }[] = [
   { to: '/billing', label: 'Billing', perm: 'billing.create' },
   { to: '/dashboard', label: 'Dashboard' },
+  { to: '/assistant', label: 'Assistant' },
   { to: '/sales', label: 'Sales' },
   { to: '/purchases', label: 'Purchases', perm: 'stock.adjust' },
   { to: '/inventory', label: 'Inventory' },

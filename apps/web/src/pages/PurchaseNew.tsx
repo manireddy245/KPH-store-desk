@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { exclFromIncl, formatPaise, formatPercent, formatQty, mulDivRound, parsePercent, parseQty, parseRupees, toBase } from '@kph/core';
 import { ApiError, get, post, store } from '../lib/api';
@@ -107,6 +107,15 @@ export function PurchaseNew() {
       /* ignore */
     }
   }, [draft, draftKey]);
+
+  // A bill photo read in the assistant chat opens straight in review.
+  const location = useLocation();
+  useEffect(() => {
+    const scan = (location.state as { scan?: ScanResult } | null)?.scan;
+    if (!scan) return;
+    navigate(location.pathname, { replace: true, state: null });
+    setDraft(fromScan(scan));
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------- capture
   const [pages, setPages] = useState<PreparedPage[]>([]);
