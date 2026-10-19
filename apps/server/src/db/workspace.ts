@@ -22,6 +22,10 @@ export class Workspaces {
 
   constructor(private config: Config) {}
 
+  get scanDir() {
+    return join(this.config.dataDir, 'scans', this.name);
+  }
+
   get backupDir() {
     return join(this.config.dataDir, 'backups', this.name);
   }

@@ -18,6 +18,9 @@ export interface StoreSettings {
   /** Hour (0–23, India time) for the automatic daily backup. */
   autoBackupHour: number;
   geminiApiKey: string;
+  /** Gemini model used by the invoice scanner; change it here when Google retires a model. */
+  geminiModel: string;
+  purchasePrefix: string;
 }
 
 export const DEFAULT_SETTINGS: StoreSettings = {
@@ -36,6 +39,8 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   allowNegativeStock: false,
   autoBackupHour: 21,
   geminiApiKey: '',
+  geminiModel: 'gemini-3.8-flash',
+  purchasePrefix: 'PUR',
 };
 
 /** Never included in backups or sent to non-admin screens. */

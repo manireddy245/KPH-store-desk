@@ -183,7 +183,8 @@ export async function deleteProduct(sql: Sql, ctx: Ctx, id: number) {
     const [used] = await tx`
       select 1 from stock_movements where product_id = ${id}
       union all select 1 from sales_invoice_lines where product_id = ${id}
-      union all select 1 from price_history where product_id = ${id} limit 1`;
+      union all select 1 from price_history where product_id = ${id}
+      union all select 1 from purchase_lines where product_id = ${id} limit 1`;
     if (used) {
       await tx`update products set active = false, updated_at = now() where id = ${id}`;
       await audit(tx, ctx, 'product.deactivated', { entity: 'product', entityId: id, details: { name: p.name } });

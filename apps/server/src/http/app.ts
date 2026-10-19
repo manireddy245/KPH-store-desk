@@ -11,7 +11,9 @@ import { Realtime } from './realtime.js';
 import { registerAdminRoutes } from './routes-admin.js';
 import { registerAuthRoutes } from './routes-auth.js';
 import { registerCatalogRoutes } from './routes-catalog.js';
+import { registerPurchaseRoutes } from './routes-purchases.js';
 import { registerSalesRoutes } from './routes-sales.js';
+import type { ModelCaller } from '../services/scanner.js';
 
 /** What the HTTP layer needs from the database side. Workspaces implements it; tests pass a fixed one. */
 export interface DbProvider {
@@ -19,6 +21,8 @@ export interface DbProvider {
   app: Sql;
   owner: Sql;
   backupDir: string;
+  /** Where scanned supplier bills (photos, PDFs) are kept. */
+  scanDir: string;
   open?(name: WorkspaceName): Promise<void>;
   resetSample?(): Promise<void>;
 }
@@ -45,6 +49,8 @@ export interface AppDeps {
   db: DbProvider;
   webDist?: string;
   logger?: boolean;
+  /** Replace the Gemini call (tests). */
+  scanner?: ModelCaller;
 }
 
 export async function buildApp(deps: AppDeps) {
@@ -101,6 +107,7 @@ export async function buildApp(deps: AppDeps) {
   await registerCatalogRoutes(app, shared);
   await registerSalesRoutes(app, shared);
   await registerAdminRoutes(app, shared);
+  await registerPurchaseRoutes(app, shared, { scanner: deps.scanner });
 
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true, workspace: deps.db.name, time: new Date().toISOString() }));
 

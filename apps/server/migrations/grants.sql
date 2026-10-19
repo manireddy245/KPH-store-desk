@@ -7,3 +7,4 @@ revoke delete, truncate on all tables in schema public from storedesk_app;
 grant delete on products, bill_drafts to storedesk_app;
 revoke insert, update on stock_balances from storedesk_app;
 revoke insert, update on schema_migrations from storedesk_app;
+grant delete on product_aliases to storedesk_app;
