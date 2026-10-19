@@ -39,6 +39,7 @@ export async function registerAdminRoutes(app: FastifyInstance, { db, live }: Sh
         storeName: z.string().min(2),
         storeAddress: z.string(),
         storePlace: z.string().max(50),
+        tallyCompanyName: z.string().max(100),
         storePincode: z.string().regex(/^$|^[1-9][0-9]{5}$/, 'PIN code is 6 digits'),
         storePhone: z.string(),
         storeGstin: z.string().regex(/^$|^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, 'GSTIN should be 15 characters, e.g. 37ABCDE1234F1Z5'),

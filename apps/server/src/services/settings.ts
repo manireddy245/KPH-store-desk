@@ -32,6 +32,8 @@ export interface StoreSettings {
   openingDate: string;
   /** Set once the opening balances are confirmed; they can't be changed after that. */
   openingLocked: boolean;
+  /** Company name exactly as in the CA's Tally (blank = shop name). */
+  tallyCompanyName: string;
   /** Default for new bill lines: price typed excluding or including GST. */
   salesPriceMode: 'excl' | 'incl';
   /** Default for purchase lines. */
@@ -68,6 +70,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   journalPrefix: 'JRN',
   openingDate: '',
   openingLocked: false,
+  tallyCompanyName: '',
   salesPriceMode: 'excl',
   purchasePriceMode: 'excl',
   invoiceLabels: 'te-en',
