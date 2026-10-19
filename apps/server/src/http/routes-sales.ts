@@ -14,6 +14,7 @@ import {
 import { can } from '../services/common.js';
 import { dashboard } from '../services/dashboard.js';
 import { getSettings } from '../services/settings.js';
+import { getTransport } from '../services/eway.js';
 import { ctxOf, type Shared } from './app.js';
 
 const id = z.coerce.number().int().positive();
@@ -28,7 +29,7 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
         customerName: z.string().max(100).optional(),
         customerPhone: z.string().max(20).optional(),
         customerAddress: z.string().max(300).optional(),
-        placeOfSupply: z.string().regex(/^d{2}$/).optional(),
+        placeOfSupply: z.string().regex(/^\d{2}$/).optional(),
         paymentMode: z.enum(['cash', 'upi', 'card', 'credit']),
         notes: z.string().max(500).optional(),
         lines: z
@@ -73,7 +74,8 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
 
   app.get('/api/invoices/:id', async (req) => {
     const ctx = ctxOf(req);
-    const inv = await getInvoice(db.app, z.object({ id }).parse(req.params).id, { withCost: can(ctx, 'products.view_cost') });
+    const invId = z.object({ id }).parse(req.params).id;
+    const inv = await getInvoice(db.app, invId, { withCost: can(ctx, 'products.view_cost') });
     const s = await getSettings(db.app);
     const store = {
       name: s.storeName,
@@ -84,8 +86,10 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
       stateName: s.stateName,
       terms: s.invoiceTerms,
       labels: s.invoiceLabels,
+      place: s.storePlace,
+      pincode: s.storePincode,
     };
-    return { ...inv, store };
+    return { ...inv, store, transport: await getTransport(db.app, invId) };
   });
 
   app.post('/api/invoices/:id/cancel', async (req) => {
