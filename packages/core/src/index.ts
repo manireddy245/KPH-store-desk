@@ -6,3 +6,4 @@ export * from './words.js';
 export * from './permissions.js';
 export * from './gst.js';
 export * from './units.js';
+export * from './gstreturns.js';

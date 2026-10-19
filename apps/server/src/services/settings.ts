@@ -3,6 +3,9 @@ import type { Q } from '../db/connect.js';
 export interface StoreSettings {
   storeName: string;
   storeAddress: string;
+  /** Town and PIN code of the shop (e-way bills). */
+  storePlace: string;
+  storePincode: string;
   storePhone: string;
   storeGstin: string;
   stateCode: string;
@@ -34,6 +37,8 @@ export interface StoreSettings {
 export const DEFAULT_SETTINGS: StoreSettings = {
   storeName: 'Kanakapatnam Paints and Hardwares',
   storeAddress: 'Kavali, Andhra Pradesh',
+  storePlace: 'Kavali',
+  storePincode: '524201',
   storePhone: '',
   storeGstin: '',
   stateCode: '37',
