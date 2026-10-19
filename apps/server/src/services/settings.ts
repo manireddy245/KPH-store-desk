@@ -34,6 +34,12 @@ export interface StoreSettings {
   openingLocked: boolean;
   /** Company name exactly as in the CA's Tally (blank = shop name). */
   tallyCompanyName: string;
+  /** Days of credit before a bill counts as overdue (each customer can have their own). */
+  creditDaysDefault: number;
+  /** Language of WhatsApp reminders unless the customer has their own. */
+  reminderLanguage: 'te' | 'en';
+  /** Shop UPI ID, added to reminders as a pay link (optional). */
+  storeUpiId: string;
   /** Default for new bill lines: price typed excluding or including GST. */
   salesPriceMode: 'excl' | 'incl';
   /** Default for purchase lines. */
@@ -71,6 +77,9 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   openingDate: '',
   openingLocked: false,
   tallyCompanyName: '',
+  creditDaysDefault: 30,
+  reminderLanguage: 'te',
+  storeUpiId: '',
   salesPriceMode: 'excl',
   purchasePriceMode: 'excl',
   invoiceLabels: 'te-en',

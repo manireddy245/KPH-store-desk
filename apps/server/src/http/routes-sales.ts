@@ -32,6 +32,7 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
         placeOfSupply: z.string().regex(/^\d{2}$/).optional(),
         paymentMode: z.enum(['cash', 'upi', 'card', 'credit']),
         notes: z.string().max(500).optional(),
+        creditOverrideToken: z.string().optional(),
         lines: z
           .array(
             z.object({
@@ -110,6 +111,7 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
         amountPaise: z.number().int().positive(),
         reference: z.string().max(100).optional(),
         notes: z.string().max(500).optional(),
+        allocations: z.array(z.object({ invoiceId: z.number().int().positive(), amountPaise: z.number().int().positive() })).max(200).optional(),
       })
       .parse(req.body);
     const r = await createReceipt(db.app, ctxOf(req), b);

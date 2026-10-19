@@ -10,6 +10,9 @@ export interface CustomerInput {
   address?: string | null;
   stateCode?: string;
   creditLimitPaise?: number | null;
+  /** Days before a credit bill is overdue; null = the shop default. */
+  creditDays?: number | null;
+  language?: 'te' | 'en' | null;
   notes?: string | null;
   active?: boolean;
   /** Only when creating: amount they already owe us (negative = advance). */
@@ -30,7 +33,7 @@ export async function listCustomers(q: Q, f: { search?: string; withBalanceOnly?
   const search = f.search?.trim() ? `%${f.search.trim().toLowerCase()}%` : null;
   return q`
     select * from (
-      select c.id, c.name, c.phone, c.gstin, c.address, c.state_code, c.credit_limit_paise, c.notes, c.active, c.is_sample,
+      select c.id, c.name, c.phone, c.gstin, c.address, c.state_code, c.credit_limit_paise, c.credit_days, c.language, c.notes, c.active, c.is_sample,
              c.created_at, c.ledger_id,
              l.opening_dr_paise + coalesce(vl.bal, 0) as balance_paise,
              coalesce(si.total, 0) as total_purchases_paise,
@@ -62,9 +65,10 @@ export async function createCustomer(sql: Sql, ctx: Ctx, input: CustomerInput & 
       if (dup) throw new AppError(409, 'DUPLICATE_PHONE', `${dup.name} already has this phone number`);
     }
     const [c] = await tx<{ id: number }[]>`
-      insert into customers (name, phone, gstin, address, state_code, credit_limit_paise, notes, is_sample)
+      insert into customers (name, phone, gstin, address, state_code, credit_limit_paise, credit_days, language, notes, is_sample)
       values (${input.name.trim()}, ${clean(input.phone)}, ${clean(input.gstin)?.toUpperCase() ?? null}, ${clean(input.address)},
-              ${input.stateCode ?? stateFromGstin(clean(input.gstin)) ?? '37'}, ${input.creditLimitPaise ?? null}, ${clean(input.notes)}, ${opts.isSample ?? false})
+              ${input.stateCode ?? stateFromGstin(clean(input.gstin)) ?? '37'}, ${input.creditLimitPaise ?? null}, ${input.creditDays ?? null},
+              ${input.language ?? null}, ${clean(input.notes)}, ${opts.isSample ?? false})
       returning id`;
     const id = c!.id;
     const ledgerId = await createPartyLedger(tx, 'customer', id, input.name.trim(), input.openingBalancePaise ?? 0);
@@ -87,6 +91,11 @@ export async function updateCustomer(sql: Sql, ctx: Ctx, id: number, input: Cust
   if (input.stateCode !== undefined) set.state_code = input.stateCode;
   else if (set.gstin) set.state_code = stateFromGstin(set.gstin as string);
   if (input.creditLimitPaise !== undefined) set.credit_limit_paise = input.creditLimitPaise;
+  if (input.creditDays !== undefined) {
+    requirePerm(ctx, 'settings.manage', 'Only admin can change credit days');
+    set.credit_days = input.creditDays;
+  }
+  if (input.language !== undefined) set.language = input.language;
   if (input.notes !== undefined) set.notes = clean(input.notes);
   if (input.active !== undefined) set.active = input.active;
   if (!Object.keys(set).length) return { id };

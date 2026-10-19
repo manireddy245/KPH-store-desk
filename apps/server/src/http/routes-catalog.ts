@@ -54,6 +54,8 @@ const customerBody = z.object({
   address: z.string().nullable().optional(),
   stateCode: z.string().optional(),
   creditLimitPaise: money.nullable().optional(),
+  creditDays: z.number().int().min(0).max(365).nullable().optional(),
+  language: z.enum(['te', 'en']).nullable().optional(),
   notes: z.string().nullable().optional(),
   active: z.boolean().optional(),
   openingBalancePaise: z.number().int().optional(),

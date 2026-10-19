@@ -274,6 +274,16 @@ export async function vouchersXml(sql: Sql, ctx: Ctx, r: { from: string; to: str
   const allocs = await sql<{ entry_id: number; supplier_invoice_no: string; amount_paise: number }[]>`
     select a.entry_id, p.supplier_invoice_no, a.amount_paise from payment_allocations a join purchase_invoices p on p.id = a.purchase_id
     join money_entries m on m.id = a.entry_id where m.entry_date between ${r.from} and ${r.to}`;
+  // Receipts settled against our credit bills.
+  const rallocs = await sql<{ receipt_id: number; number: string; amount_paise: number }[]>`
+    select a.receipt_id, si.number, a.amount_paise from receipt_allocations a join sales_invoices si on si.id = a.invoice_id
+    join receipts r on r.id = a.receipt_id where r.receipt_date between ${r.from} and ${r.to}`;
+  const allocByReceipt = new Map<number, { ref: string; paise: number }[]>();
+  for (const a of rallocs) {
+    const list = allocByReceipt.get(a.receipt_id) ?? [];
+    list.push({ ref: a.number, paise: a.amount_paise });
+    allocByReceipt.set(a.receipt_id, list);
+  }
   const allocByEntry = new Map<number, { ref: string; paise: number }[]>();
   for (const a of allocs) {
     const list = allocByEntry.get(a.entry_id) ?? [];
@@ -308,6 +318,12 @@ export async function vouchersXml(sql: Sql, ctx: Ctx, r: { from: string; to: str
           const total = l.dr - l.cr;
           const used = list.reduce((t, a) => t + a.paise, 0);
           return list.map((a) => bill(a.ref, 'Agst Ref', amt(-a.paise))).join('') + (total - used > 0 ? bill('', 'On Account', amt(-(total - used))) : '');
+        }
+        case 'receipt': {
+          const list = (v.ref_id && allocByReceipt.get(v.ref_id)) || [];
+          const total = l.cr - l.dr;
+          const used = list.reduce((t, a) => t + a.paise, 0);
+          return list.map((a) => bill(a.ref, 'Agst Ref', amt(a.paise))).join('') + (total - used > 0 ? bill('', 'On Account', amt(total - used)) : '');
         }
         default:
           return bill('', 'On Account', tallyAmt);

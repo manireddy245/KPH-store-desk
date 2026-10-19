@@ -53,6 +53,8 @@ export interface InvoiceInput {
   paymentMode: PaymentMode;
   notes?: string;
   lines: InvoiceLineInput[];
+  /** Admin approval to go over the customer's credit limit (credit bills). */
+  creditOverrideToken?: string;
 }
 
 export interface ProductForBill {
@@ -264,6 +266,31 @@ async function saveInvoice(
       throw new AppError(400, 'B2C_NEEDS_DETAILS', 'For a bill of ₹50,000 or more, GST rules need the customer’s name and address. Choose the customer or type the name and address.');
     }
 
+    // Credit limit: going over it needs the admin (or their PIN). Lock the customer so two counters can't both slip under it.
+    let overCredit: { balancePaise: number; limitPaise: number; afterPaise: number; approvedBy: number | null } | null = null;
+    if (input.paymentMode === 'credit' && customer) {
+      const [lim] = await tx<{ credit_limit_paise: number | null }[]>`select credit_limit_paise from customers where id = ${customer.id} for no key update`;
+      if (lim?.credit_limit_paise != null) {
+        const balancePaise = await ledgerBalance(tx, customer.ledger_id);
+        const afterPaise = balancePaise + totals.totalPaise;
+        if (afterPaise > lim.credit_limit_paise) {
+          let approvedBy: number | null = null;
+          if (!can(ctx, 'billing.over_credit_limit')) {
+            if (!input.creditOverrideToken)
+              throw new AppError(403, 'NEEDS_OVERRIDE', `${customer.name} would owe ₹${(afterPaise / 100).toFixed(2)}, over their credit limit of ₹${(lim.credit_limit_paise / 100).toFixed(2)}. Admin PIN needed.`, {
+                permission: 'billing.over_credit_limit',
+                customerId: customer.id,
+                balancePaise,
+                limitPaise: lim.credit_limit_paise,
+                afterPaise,
+              });
+            approvedBy = (await consumeOverride(tx, ctx, input.creditOverrideToken, 'billing.over_credit_limit', (c) => c.customerId === customer!.id && typeof c.upToPaise === 'number' && c.upToPaise >= afterPaise)).approvedBy;
+          }
+          overCredit = { balancePaise, limitPaise: lim.credit_limit_paise, afterPaise, approvedBy };
+        }
+      }
+    }
+
     const at = opts.at ?? new Date();
     const date = istDate(at);
     const fy = fyStartYear(at);
@@ -352,6 +379,14 @@ async function saveInvoice(
       entityId: id,
       details: { number, totalPaise: totals.totalPaise, paymentMode: input.paymentMode, items: prepared.length, customerId: customer?.id ?? null, supply },
     });
+    if (overCredit) {
+      await audit(tx, ctx, 'credit.over_limit', {
+        entity: 'sales_invoice',
+        entityId: id,
+        details: { number, customerId: customer!.id, customer: customer!.name, balancePaise: overCredit.balancePaise, limitPaise: overCredit.limitPaise, afterPaise: overCredit.afterPaise },
+        approvedBy: overCredit.approvedBy,
+      });
+    }
     for (const o of overLimit) {
       await audit(tx, ctx, 'discount.over_limit', {
         entity: 'sales_invoice',
@@ -465,7 +500,7 @@ export async function cancelInvoice(sql: Sql, ctx: Ctx, id: number, input: { rea
 export async function createReceipt(
   sql: Sql,
   ctx: Ctx,
-  input: { clientRef?: string; customerId: number; mode: 'cash' | 'upi' | 'card' | 'bank' | 'cheque'; amountPaise: number; reference?: string; notes?: string },
+  input: { clientRef?: string; customerId: number; mode: 'cash' | 'upi' | 'card' | 'bank' | 'cheque'; amountPaise: number; reference?: string; notes?: string; allocations?: { invoiceId: number; amountPaise: number }[] },
   opts: { at?: Date } = {},
 ) {
   requirePerm(ctx, 'payments.receive');
@@ -501,6 +536,18 @@ export async function createReceipt(
       values (${id}, ${number}, ${fy}, ${seq}, ${date}, ${at}, ${c.id}, ${input.mode}, ${input.amountPaise},
               ${input.reference?.trim() || null}, ${input.notes?.trim() || null}, ${voucherId}, ${ctx.userId}, ${ctx.deviceId},
               ${input.clientRef ?? null})`;
+    // Settle specific credit bills (the rest stays "on account" and settles the oldest bills first).
+    const allocs = (input.allocations ?? []).filter((a) => a.amountPaise > 0);
+    if (allocs.length) {
+      if (allocs.reduce((t, a) => t + a.amountPaise, 0) > input.amountPaise) throw new AppError(400, 'OVER_ALLOCATED', 'The bills ticked add up to more than the payment');
+      const open = new Map((await openCreditBills(tx, c.id)).map((b) => [b.id, b]));
+      for (const a of allocs) {
+        const b = open.get(a.invoiceId);
+        if (!b) throw new AppError(400, 'BAD_BILL', 'A ticked bill is not an unpaid credit bill of this customer');
+        if (a.amountPaise > b.due_paise) throw new AppError(400, 'OVER_BILL', `Bill ${b.number} has only ₹${(b.due_paise / 100).toFixed(2)} left to pay`);
+      }
+      await tx`insert into receipt_allocations ${tx(allocs.map((a) => ({ receipt_id: id, invoice_id: a.invoiceId, amount_paise: a.amountPaise })))}`;
+    }
     await audit(tx, ctx, 'receipt.created', {
       entity: 'receipt',
       entityId: id,
@@ -550,4 +597,23 @@ export async function getDraft(sql: Sql, ctx: Ctx) {
 export async function clearDraft(sql: Sql, ctx: Ctx) {
   if (!ctx.deviceId) return;
   await sql`delete from bill_drafts where device_id = ${ctx.deviceId} and user_id = ${ctx.userId}`;
+}
+
+/**
+ * A customer's credit bills with what is still due on each: bill total, less receipts marked
+ * against it, less returns credited to their account. (Payments "on account" are not here;
+ * the ageing report applies them to the oldest bills.)
+ */
+export async function openCreditBills(q: Q, customerId: number) {
+  return q<{ id: number; number: string; invoice_date: string; total_paise: number; paid_paise: number; returned_paise: number; due_paise: number }[]>`
+    select x.*, x.total_paise - x.paid_paise - x.returned_paise as due_paise from (
+      select si.id, si.number, si.invoice_date, si.total_paise,
+             coalesce((select sum(a.amount_paise) from receipt_allocations a join receipts r on r.id = a.receipt_id
+                       where a.invoice_id = si.id and r.status = 'posted'), 0)::bigint as paid_paise,
+             coalesce((select sum(cn.total_paise) from credit_notes cn
+                       where cn.invoice_id = si.id and cn.status = 'posted' and cn.refund_mode = 'account'), 0)::bigint as returned_paise
+      from sales_invoices si
+      where si.customer_id = ${customerId} and si.status = 'posted' and si.payment_mode = 'credit'
+    ) x
+    order by x.invoice_date, x.id`;
 }

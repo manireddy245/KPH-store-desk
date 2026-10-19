@@ -7,3 +7,4 @@ export * from './permissions.js';
 export * from './gst.js';
 export * from './units.js';
 export * from './gstreturns.js';
+export * from './khata.js';
