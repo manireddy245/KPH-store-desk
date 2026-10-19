@@ -109,6 +109,29 @@ export function qs(params: Record<string, string | number | boolean | undefined 
   return str ? `?${str}` : '';
 }
 
+/** Download a file from the server (Excel, JSON) with the login headers, under the name the server gives. */
+export async function download(path: string, fallbackName: string) {
+  const headers: Record<string, string> = {};
+  if (store.deviceToken) headers['x-device-token'] = store.deviceToken;
+  if (store.sessionToken) headers.authorization = `Bearer ${store.sessionToken}`;
+  const res = await fetch(path, { headers });
+  if (!res.ok) {
+    let msg = 'Could not download';
+    try {
+      msg = (await res.json()).message ?? msg;
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(res.status, 'DOWNLOAD', msg);
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? fallbackName;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(await res.blob());
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+}
+
 export async function fileToBase64(file: File): Promise<string> {
   const buf = new Uint8Array(await file.arrayBuffer());
   let bin = '';

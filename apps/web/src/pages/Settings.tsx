@@ -53,6 +53,8 @@ const err = (e: unknown) => (e instanceof ApiError ? e.message : 'Something went
 interface StoreSettingsDto {
   storeName: string;
   storeAddress: string;
+  storePlace: string;
+  storePincode: string;
   storePhone: string;
   storeGstin: string;
   stateCode: string;
@@ -85,6 +87,8 @@ function StoreSettings() {
     setF({
       storeName: s.storeName,
       storeAddress: s.storeAddress,
+      storePlace: s.storePlace,
+      storePincode: s.storePincode,
       storePhone: s.storePhone,
       storeGstin: s.storeGstin,
       stateCode: s.stateCode,
@@ -111,6 +115,8 @@ function StoreSettings() {
       await put('/api/settings', {
         storeName: f.storeName,
         storeAddress: f.storeAddress,
+        storePlace: f.storePlace,
+        storePincode: String(f.storePincode ?? '').trim(),
         storePhone: f.storePhone,
         storeGstin: String(f.storeGstin).toUpperCase().trim(),
         stateCode: f.stateCode,
@@ -147,6 +153,12 @@ function StoreSettings() {
           </Field>
           <Field label="Address" className="sm:col-span-2">
             <Input value={String(f.storeAddress ?? '')} onChange={t('storeAddress')} />
+          </Field>
+          <Field label="Town (for e-way bills)">
+            <Input value={String(f.storePlace ?? '')} onChange={t('storePlace')} />
+          </Field>
+          <Field label="PIN code (for e-way bills)">
+            <Input value={String(f.storePincode ?? '')} onChange={t('storePincode')} inputMode="numeric" maxLength={6} />
           </Field>
           <Field label="Phone">
             <Input value={String(f.storePhone ?? '')} onChange={t('storePhone')} />

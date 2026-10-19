@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatPaise, formatPercent, formatQty } from '@kph/core';
+import { ewayNeeded, formatPaise, formatPercent, formatQty } from '@kph/core';
 import { ApiError, get, post, qs } from '../lib/api';
 import { MODE_LABEL, csvCell, daysAgoIst, downloadText, fmtDate, fmtDateTime, todayIst } from '../lib/format';
 import { useOverride } from '../lib/override';
@@ -10,6 +10,7 @@ import type { InvoiceFull, InvoiceListRow } from '../lib/types';
 import { Page } from '../components/Layout';
 import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, cx, useDebounced, useToast } from '../components/ui';
 import { SalesReturnModal } from './Returns';
+import { EwayModal } from '../components/Eway';
 
 export function Sales() {
   const [params, setParams] = useSearchParams();
@@ -126,6 +127,7 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
   const inv = useQuery({ queryKey: ['invoice', id], queryFn: () => get<InvoiceFull>(`/api/invoices/${id}`), enabled: id != null });
   const [cancelOpen, setCancelOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [ewayOpen, setEwayOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -167,7 +169,7 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
   return (
     <>
       <Modal
-        open={id != null && !cancelOpen && !returnOpen}
+        open={id != null && !cancelOpen && !returnOpen && !ewayOpen}
         onClose={onClose}
         title={d ? `Bill ${d.number}` : 'Bill'}
         width={860}
@@ -180,6 +182,11 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
               {d.status === 'posted' && !d.credit_notes?.some((c) => c.status === 'posted') && (can('billing.cancel') || can('billing.create')) && (
                 <Button variant="danger" onClick={() => setCancelOpen(true)}>
                   Cancel bill…
+                </Button>
+              )}
+              {d.status === 'posted' && can('billing.create') && (
+                <Button onClick={() => setEwayOpen(true)}>
+                  {d.transport?.ewb_no ? `EWB ${d.transport.ewb_no}` : ewayNeeded({ taxablePaise: d.taxable_paise, cgstPaise: d.cgst_paise, sgstPaise: d.sgst_paise, igstPaise: d.igst_paise }) && !d.transport?.not_needed_reason ? 'E-way bill needed…' : 'E-way bill…'}
                 </Button>
               )}
               <Button variant="dark" onClick={() => window.open(`/print/invoice/${d.id}?auto=1`, '_blank')}>
@@ -272,6 +279,7 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
         )}
       </Modal>
       <SalesReturnModal invoice={d ?? null} open={returnOpen} onClose={() => setReturnOpen(false)} />
+      {d && <EwayModal invoiceId={d.id} open={ewayOpen} onClose={() => setEwayOpen(false)} />}
       <Modal
         open={cancelOpen}
         onClose={() => setCancelOpen(false)}

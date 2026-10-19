@@ -13,6 +13,7 @@ export const NAV: { to: string; label: string; perm?: Permission | Permission[] 
   { to: '/inventory', label: 'Inventory' },
   { to: '/customers', label: 'Customers' },
   { to: '/suppliers', label: 'Suppliers' },
+  { to: '/reports', label: 'Reports', perm: 'reports.view' },
   { to: '/activity', label: 'Activity' },
   { to: '/settings', label: 'Settings', perm: ['settings.manage', 'users.manage'] },
 ];

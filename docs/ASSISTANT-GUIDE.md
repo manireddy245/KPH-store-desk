@@ -52,7 +52,7 @@ Browsers only allow the microphone on secure (https) addresses, or on the server
 
 - The assistant uses the Gemini model set in Settings (the same one as the scanner).
 - Each message costs one to four Gemini calls. A bill photo costs one more, for the scanner. On the free tier, the daily limit can run out on a busy day. You will see "Google Gemini is busy or the free limit is used up".
-- Coming later: reports and GST exports from Phase 2B, available through the chat too.
+- Reports and GST exports are under Reports (Phase 2B).
 
 ## When Google is busy
 

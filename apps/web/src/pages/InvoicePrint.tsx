@@ -93,7 +93,12 @@ function fromInvoice(d: InvoiceFull): Doc {
     customer: { name: d.customer_name, address: d.customer_address, phone: d.customer_phone, gstin: d.customer_gstin },
     pos: d.place_of_supply,
     supply: d.supply_type ?? 'intra',
-    extra: [['Payment', MODE_LABEL[d.payment_mode] ?? d.payment_mode], ['Reverse charge', 'No']],
+    extra: [
+      ['Payment', MODE_LABEL[d.payment_mode] ?? d.payment_mode],
+      ['Reverse charge', 'No'],
+      ...(d.transport?.ewb_no ? ([['E-way bill', `${d.transport.ewb_no}${d.transport.ewb_date ? ` · ${fmtDate(d.transport.ewb_date)}` : ''}`]] as [string, string][]) : []),
+      ...(d.transport?.vehicle_no ? ([['Vehicle', d.transport.vehicle_no]] as [string, string][]) : []),
+    ],
     lines: d.lines.map((l) => ({
       no: l.line_no,
       name: l.product_name,

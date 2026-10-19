@@ -137,7 +137,8 @@ export interface InvoiceFull {
   user_name: string;
   device_name: string | null;
   lines: InvoiceLine[];
-  store: { name: string; address: string; phone: string; gstin: string; stateCode: string; stateName: string; terms: string; labels: 'en' | 'te-en' };
+  store: { name: string; address: string; phone: string; gstin: string; stateCode: string; stateName: string; terms: string; labels: 'en' | 'te-en'; place?: string; pincode?: string };
+  transport?: Transport | null;
 }
 
 export interface Category {
@@ -199,4 +200,28 @@ export interface AssistantMessage {
   files: { kind: 'image' | 'pdf' | 'audio'; mimeType: string; file: string }[];
   cards: AssistantCard[];
   error: string | null;
+}
+
+export interface Transport {
+  to_place: string | null;
+  to_pincode: string | null;
+  distance_km: number | null;
+  trans_mode: 'road' | 'rail' | 'air' | 'ship';
+  vehicle_no: string | null;
+  transporter_id: string | null;
+  transporter_name: string | null;
+  ewb_no: string | null;
+  ewb_date: string | null;
+  not_needed_reason: string | null;
+  updated_by_name?: string;
+  updated_at?: string;
+}
+
+export interface EwayStatus {
+  invoiceId: number;
+  number: string;
+  valuePaise: number;
+  needed: boolean;
+  transport: Transport | null;
+  missing: string[];
 }
