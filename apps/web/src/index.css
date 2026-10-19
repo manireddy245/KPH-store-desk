@@ -1,0 +1,113 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/archivo/wdth.css';
+@import '@fontsource-variable/anek-telugu/index.css';
+
+/* Kanakapatnam brand (see the "Kanakapatnam Brand & Website" guidelines):
+   Brick Orange is the single highlight per screen; Ink and Concrete do the work. */
+@theme {
+  --font-sans: 'Archivo Variable', 'Anek Telugu Variable', 'Segoe UI', 'Nirmala UI', system-ui, sans-serif;
+  --font-telugu: 'Anek Telugu Variable', 'Nirmala UI', 'Noto Sans Telugu', sans-serif;
+  --color-brick: #c2491a;
+  --color-brick-dark: #a0341f;
+  --color-brick-soft: #d9a58f;
+  --color-ink: #16181b;
+  --color-ink-2: #3e3c38;
+  --color-ink-3: #55524c;
+  --color-cement: #8a857c;
+  --color-concrete: #f3f1ec;
+  --color-paper: #f7f5f1;
+  --color-teal: #1e3f48;
+  --color-teal-soft: #e3ecee;
+  --color-line: #dedad1;
+  --color-line-2: #cfcac0;
+  --color-line-3: #ece8e0;
+  --color-nav: #c9c4ba;
+  --color-good: #1d7a3e;
+  --color-good-soft: #e6f2ea;
+  --color-warn: #8a5a00;
+  --color-warn-ink: #6b4600;
+  --color-warn-soft: #fff3d6;
+  --color-bad: #b3261e;
+  --color-bad-ink: #8c1d18;
+  --color-bad-soft: #fbe9e7;
+  --color-sample: #f2b705;
+  --radius-brand: 6px;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--color-concrete);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+.telugu {
+  font-family: var(--font-telugu);
+}
+/* Brand headline: Archivo condensed, extra bold, uppercase */
+.headline {
+  font-weight: 800;
+  font-stretch: 75%;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+}
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+:focus-visible {
+  outline: 2px solid var(--color-teal);
+  outline-offset: 1px;
+}
+.kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 6px;
+  border: 1px solid var(--color-line-2);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-ink-2);
+  text-align: center;
+  line-height: 16px;
+}
+
+/* The discreet max-discount hint: barely visible, says more only on hover. Never printed. */
+.disc-hint {
+  color: #d3cec4;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  user-select: none;
+  cursor: default;
+}
+.disc-hint:hover {
+  color: var(--color-cement);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}
