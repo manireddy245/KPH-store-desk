@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatPaise, formatPercent, formatQty, mulDivRound, parsePercent, parseQty, parseRupees } from '@kph/core';
+import { exclFromIncl, formatPaise, formatPercent, formatQty, mulDivRound, parsePercent, parseQty, parseRupees, toBase } from '@kph/core';
 import { ApiError, get, post, store } from '../lib/api';
 import { todayIst, uuid } from '../lib/format';
 import { preparePage, type PreparedPage } from '../lib/images';
@@ -18,7 +18,11 @@ interface LineDraft {
   hsn: string;
   billUnit: string | null;
   qtyText: string;
-  amountText: string; // value excl. GST, after discount (₹)
+  amountText: string; // value of the line after discount (₹), excl. or incl. GST per draft.amountMode
+  /** Unit the quantity is in (default: matched from the bill, else our base unit). */
+  unitCode?: string | null;
+  /** Actual count received in our base unit (overrides the conversion). */
+  countText?: string;
   gstText: string;
   productId: number | null;
   newProduct: { name: string; unitCode: string } | null;
@@ -36,6 +40,7 @@ interface Draft {
   billNo: string;
   billDate: string;
   supplyType: 'intra' | 'inter';
+  amountMode?: 'excl' | 'incl';
   freightText: string;
   billTotalText: string;
   notes: string;
@@ -295,21 +300,30 @@ function Review({
   const [pageView, setPageView] = useState<string | null>(null);
   const qc = useQueryClient();
 
+  const amountMode = draft.amountMode ?? 'excl';
   const rows = draft.lines.map((l) => {
     const qty = parseQty(l.qtyText);
-    const amount = parseRupees(l.amountText);
+    const typed = parseRupees(l.amountText);
     const gst = parsePercent(l.gstText);
+    const amount = typed != null && gst != null && amountMode === 'incl' ? exclFromIncl(typed, gst) : typed;
     const p = l.productId ? byId.get(l.productId) : undefined;
-    const ok = qty != null && qty > 0 && amount != null && amount >= 0 && gst != null && (!!p || !!l.newProduct);
+    const buyUnits = p ? [p.unit_code, ...p.units.filter((u) => u.for_purchase).map((u) => u.unit_code)] : [];
+    const billUnitCode = unitCode(l.billUnit);
+    const chosenUnit = l.unitCode ?? (billUnitCode && buyUnits.includes(billUnitCode) ? billUnitCode : (p?.unit_code ?? null));
+    const pu = p && chosenUnit && chosenUnit !== p.unit_code ? p.units.find((u) => u.unit_code === chosenUnit) : undefined;
+    const converted = qty != null && pu ? toBase(qty, { num: pu.factor_num, den: pu.factor_den }).baseMilli : qty;
+    const counted = l.countText?.trim() ? parseQty(l.countText) : null;
+    const base = counted ?? converted;
+    const ok = qty != null && qty > 0 && base != null && base > 0 && amount != null && amount >= 0 && gst != null && (!!p || !!l.newProduct) && (!l.countText?.trim() || counted != null);
     const half = ok ? mulDivRound(amount!, gst!, 20000) : 0;
     const igst = ok ? mulDivRound(amount!, gst!, 10000) : 0;
     const tax = draft.supplyType === 'inter' ? igst : 2 * half;
-    const unitCost = ok && qty ? mulDivRound(amount!, 1000, qty) : null;
+    const unitCost = ok && base ? mulDivRound(amount!, 1000, base) : null;
     const ourUnit = p?.unit_code ?? l.newProduct?.unitCode ?? null;
     const billUnit = unitCode(l.billUnit);
-    const unitWarn = billUnit && ourUnit && billUnit !== ourUnit ? `Bill counts in ${l.billUnit}; we stock ${p?.name ?? 'this'} in ${ourUnit}. Enter the quantity in ${ourUnit}.` : null;
+    const unitWarn = billUnit && ourUnit && billUnit !== chosenUnit && billUnit !== ourUnit ? `Bill counts in ${l.billUnit}; enter the quantity in ${chosenUnit ?? ourUnit}${p ? '' : ''}.` : null;
     const costWarn = unitCost != null && l.lastCostPaise && Math.abs(unitCost - l.lastCostPaise) / l.lastCostPaise > 0.25 ? `Cost ₹${formatPaise(unitCost)} is far from last time (₹${formatPaise(l.lastCostPaise)})` : null;
-    return { l, p, qty, amount, gst, ok, half, igst, tax, unitCost, ourUnit, unitWarn, costWarn };
+    return { l, p, qty, typed, amount, gst, ok, half, igst, tax, unitCost, ourUnit, unitWarn, costWarn, buyUnits, chosenUnit, base, converted, pu };
   });
   const taxable = rows.reduce((s, r) => s + (r.ok ? r.amount! : 0), 0);
   const cgst = draft.supplyType === 'intra' ? rows.reduce((s, r) => s + (r.ok ? r.half : 0), 0) : 0;
@@ -318,7 +332,7 @@ function Review({
   const computed = taxable + 2 * cgst + igst + (freight ?? 0);
   const billTotal = draft.billTotalText.trim() ? parseRupees(draft.billTotalText) : null;
   const diff = billTotal != null ? billTotal - computed : 0;
-  const units = rows.reduce((s, r) => s + (r.ok ? r.qty! : 0), 0);
+  const units = rows.reduce((s, r) => s + (r.ok ? r.base! : 0), 0);
   const badLine = rows.findIndex((r) => !r.ok);
   const canSave = !!draft.supplierId && draft.billNo.trim() && /^\d{4}-\d{2}-\d{2}$/.test(draft.billDate) && rows.length > 0 && badLine < 0 && freight != null && Math.abs(diff) <= 1000;
 
@@ -341,7 +355,10 @@ function Review({
           newProduct: r.l.productId ? undefined : r.l.newProduct ? { name: r.l.newProduct.name, unitCode: r.l.newProduct.unitCode, hsn: r.l.hsn || null } : undefined,
           description: r.l.description || undefined,
           qtyMilli: r.qty!,
-          taxablePaise: r.amount!,
+          unitCode: r.l.newProduct ? undefined : (r.chosenUnit ?? undefined),
+          baseQtyMilli: r.l.countText?.trim() ? r.base! : undefined,
+          amountPaise: r.typed!,
+          amountMode,
           gstRateBp: r.gst!,
           hsn: r.l.hsn || null,
         })),
@@ -423,6 +440,12 @@ function Review({
             <Field label="Bill date">
               <Input type="date" value={draft.billDate} max={todayIst()} onChange={(e) => update((d) => ({ ...d, billDate: e.target.value }))} />
             </Field>
+            <Field label="Line amounts on the bill are">
+              <Select value={amountMode} onChange={(e) => update((d) => ({ ...d, amountMode: e.target.value as 'excl' | 'incl' }))}>
+                <option value="excl">Before GST (taxable value)</option>
+                <option value="incl">Including GST</option>
+              </Select>
+            </Field>
             <Field label="GST type">
               <Select value={draft.supplyType} onChange={(e) => update((d) => ({ ...d, supplyType: e.target.value as 'intra' | 'inter' }))}>
                 <option value="intra">Within AP — CGST + SGST</option>
@@ -473,11 +496,40 @@ function Review({
                   <div>
                     <div className="eyebrow lg:hidden">Qty</div>
                     <Input aria-label="Quantity in our unit" inputMode="decimal" value={r.l.qtyText} onChange={(e) => setLine(r.l.key, { qtyText: e.target.value })} className={cx('num h-9 text-right', r.qty == null && 'border-bad')} />
-                    <div className="mt-0.5 text-right text-[11px] text-cement">{r.ourUnit ?? ''}</div>
+                    {r.buyUnits.length > 1 ? (
+                      <select
+                        aria-label="Unit bought in"
+                        value={r.chosenUnit ?? ''}
+                        onChange={(e) => setLine(r.l.key, { unitCode: e.target.value, countText: '' })}
+                        className="mt-0.5 w-full rounded-[4px] border border-line bg-white px-1 text-right text-[11px]"
+                      >
+                        {r.buyUnits.map((u) => (
+                          <option key={u}>{u}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="mt-0.5 text-right text-[11px] text-cement">{r.ourUnit ?? ''}</div>
+                    )}
+                    {r.pu && r.converted != null && (
+                      <div className="mt-1 text-right text-[11px] text-ink-2">
+                        = {formatQty(r.converted)} {r.ourUnit}
+                        <label className="mt-0.5 flex items-center justify-end gap-1">
+                          counted
+                          <input
+                            aria-label={`Actual ${r.ourUnit} counted`}
+                            inputMode="decimal"
+                            placeholder={formatQty(r.converted)}
+                            value={r.l.countText ?? ''}
+                            onChange={(e) => setLine(r.l.key, { countText: e.target.value })}
+                            className="num w-16 rounded-[4px] border border-line px-1 text-right"
+                          />
+                        </label>
+                      </div>
+                    )}
                   </div>
                   <div>
-                    <div className="eyebrow lg:hidden">Amount excl. GST</div>
-                    <Input aria-label="Amount excluding GST" inputMode="decimal" value={r.l.amountText} onChange={(e) => setLine(r.l.key, { amountText: e.target.value })} className={cx('num h-9 text-right', r.amount == null && 'border-bad')} />
+                    <div className="eyebrow lg:hidden">Amount {amountMode === 'incl' ? 'incl.' : 'excl.'} GST</div>
+                    <Input aria-label={`Amount ${amountMode === 'incl' ? 'including' : 'excluding'} GST`} inputMode="decimal" value={r.l.amountText} onChange={(e) => setLine(r.l.key, { amountText: e.target.value })} className={cx('num h-9 text-right', r.amount == null && 'border-bad')} />
                     <div className="num mt-0.5 text-right text-[11px] text-cement">{r.unitCost != null ? `₹${formatPaise(r.unitCost)} / ${r.ourUnit ?? 'unit'}` : ''}</div>
                   </div>
                   <div>

@@ -301,9 +301,13 @@ export async function getPurchase(q: Q, id: number) {
     where p.id = ${id}`;
   if (!p) throw new AppError(404, 'NOT_FOUND', 'Purchase not found');
   const lines = await q`
-    select l.*, pr.name as product_name, pr.sku from purchase_lines l join products pr on pr.id = l.product_id
+    select l.*, pr.name as product_name, pr.sku,
+           coalesce((select sum(dl.base_qty_milli) from debit_note_lines dl join debit_notes dn on dn.id = dl.debit_note_id
+                     where dl.purchase_line_id = l.id and dn.status = 'posted'), 0) as returned_milli
+    from purchase_lines l join products pr on pr.id = l.product_id
     where l.purchase_id = ${id} order by l.line_no`;
-  return { ...p, page_count: (p.page_files as string[] | null)?.length ?? 0, page_files: undefined, lines };
+  const debitNotes = await q`select id, number, note_date, total_paise, reason from debit_notes where purchase_id = ${id} order by id`;
+  return { ...p, page_count: (p.page_files as string[] | null)?.length ?? 0, page_files: undefined, lines, debit_notes: debitNotes };
 }
 
 /** Cancel a purchase entered by mistake: stock comes off again and the accounts are reversed. */

@@ -8,6 +8,7 @@ import { useOverride } from '../lib/override';
 import { useSession } from '../lib/session';
 import { Page } from '../components/Layout';
 import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Spinner, Table, useDebounced, useToast } from '../components/ui';
+import { PurchaseReturnModal } from './Returns';
 
 interface PurchaseRow {
   id: number;
@@ -132,7 +133,8 @@ interface PurchaseFull {
   user_name: string;
   device_name: string | null;
   notes: string | null;
-  lines: { line_no: number; product_name: string; sku: string; description: string | null; qty_milli: number; unit_code: string; unit_cost_paise: number; taxable_paise: number; gst_rate_bp: number; total_paise: number }[];
+  debit_notes: { id: number; number: string; note_date: string; total_paise: number; reason: string }[];
+  lines: { id: number; returned_milli: number; line_no: number; product_name: string; sku: string; description: string | null; qty_milli: number; unit_code: string; unit_cost_paise: number; taxable_paise: number; gst_rate_bp: number; total_paise: number }[];
 }
 
 function PurchaseModal({ id, onClose }: { id: number | null; onClose: () => void }) {
@@ -142,6 +144,7 @@ function PurchaseModal({ id, onClose }: { id: number | null; onClose: () => void
   const askOverride = useOverride();
   const q = useQuery({ queryKey: ['purchase', id], queryFn: () => get<PurchaseFull>(`/api/purchases/${id}`), enabled: id != null });
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,7 +183,7 @@ function PurchaseModal({ id, onClose }: { id: number | null; onClose: () => void
   return (
     <>
       <Modal
-        open={id != null && !cancelOpen}
+        open={id != null && !cancelOpen && !returnOpen}
         onClose={onClose}
         title={d ? `Purchase ${d.number}` : 'Purchase'}
         width={880}
@@ -193,7 +196,8 @@ function PurchaseModal({ id, onClose }: { id: number | null; onClose: () => void
                     View scanned page {i + 1}
                   </Button>
                 ))}
-              {d.status === 'posted' && (
+              {d.status === 'posted' && d.lines.some((l) => l.qty_milli > (l.returned_milli ?? 0)) && <Button onClick={() => setReturnOpen(true)}>Return to supplier…</Button>}
+              {d.status === 'posted' && !d.debit_notes?.length && (
                 <Button variant="danger" onClick={() => setCancelOpen(true)}>
                   Cancel purchase…
                 </Button>
@@ -247,6 +251,11 @@ function PurchaseModal({ id, onClose }: { id: number | null; onClose: () => void
                 </tr>
               ))}
             </Table>
+            {d.debit_notes?.length > 0 && (
+              <Notice tone="warn">
+                Returned to supplier: {d.debit_notes.map((n) => `${n.number} (₹${formatPaise(n.total_paise)} — ${n.reason})`).join(', ')}
+              </Notice>
+            )}
             <div className="num ml-auto grid w-full max-w-[300px] grid-cols-[1fr_auto] gap-x-4 gap-y-1">
               <span className="text-ink-3">Taxable value</span>
               <span className="text-right">₹{formatPaise(d.taxable_paise)}</span>
@@ -277,6 +286,7 @@ function PurchaseModal({ id, onClose }: { id: number | null; onClose: () => void
           </div>
         )}
       </Modal>
+      <PurchaseReturnModal purchase={d ?? null} open={returnOpen} onClose={() => setReturnOpen(false)} />
       <Modal
         open={cancelOpen}
         onClose={() => setCancelOpen(false)}

@@ -10,7 +10,11 @@ export interface ProductRow {
   hsn: string | null;
   gst_rate_bp: number;
   sale_price_paise: number;
+  price_includes_tax: boolean;
   cost_price_paise?: number | null;
+  contents_milli: number | null;
+  contents_unit: string | null;
+  units: ProductUnit[];
   mrp_paise: number | null;
   reorder_level_milli: number | null;
   max_disc_type: 'pct' | 'amt' | null;
@@ -22,11 +26,21 @@ export interface ProductRow {
   stock_status: 'ok' | 'low' | 'out';
 }
 
+export interface ProductUnit {
+  unit_code: string;
+  factor_num: number;
+  factor_den: number;
+  for_sale: boolean;
+  for_purchase: boolean;
+  price_paise: number | null;
+}
+
 export interface CustomerRow {
   id: number;
   name: string;
   phone: string | null;
   gstin: string | null;
+  state_code: string;
   address: string | null;
   credit_limit_paise: number | null;
   notes: string | null;
@@ -84,6 +98,11 @@ export interface InvoiceLine {
   sgst_paise: number;
   igst_paise: number;
   total_paise: number;
+  amount_paise: number;
+  rate_mode: 'excl' | 'incl';
+  base_qty_milli: number;
+  returned_qty_milli: number;
+  id: number;
   cost_price_paise?: number | null;
 }
 
@@ -98,6 +117,8 @@ export interface InvoiceFull {
   customer_gstin: string | null;
   customer_address: string | null;
   place_of_supply: string;
+  supply_type: 'intra' | 'inter';
+  credit_notes: { id: number; number: string; note_date: string; total_paise: number; status: string }[];
   payment_mode: string;
   gross_paise: number;
   discount_paise: number;
@@ -116,7 +137,7 @@ export interface InvoiceFull {
   user_name: string;
   device_name: string | null;
   lines: InvoiceLine[];
-  store: { name: string; address: string; phone: string; gstin: string; stateCode: string; stateName: string; terms: string };
+  store: { name: string; address: string; phone: string; gstin: string; stateCode: string; stateName: string; terms: string; labels: 'en' | 'te-en' };
 }
 
 export interface Category {

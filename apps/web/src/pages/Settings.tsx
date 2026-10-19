@@ -11,6 +11,7 @@ import { Badge, Button, Card, Checkbox, ConfirmTyped, Empty, Field, Input, Modal
 
 const TABS: { to: string; label: string; perm: Permission }[] = [
   { to: 'store', label: 'Shop & billing', perm: 'settings.manage' },
+  { to: 'gst', label: 'GST & invoices', perm: 'settings.manage' },
   { to: 'discounts', label: 'Categories & discounts', perm: 'products.edit_price' },
   { to: 'users', label: 'Users & roles', perm: 'users.manage' },
   { to: 'counters', label: 'Counters', perm: 'users.manage' },
@@ -33,6 +34,7 @@ export function Settings() {
       </nav>
       <Routes>
         <Route path="store" element={<StoreSettings />} />
+        <Route path="gst" element={<GstSettings />} />
         <Route path="discounts" element={<Categories />} />
         <Route path="users" element={<Users />} />
         <Route path="counters" element={<Counters />} />
@@ -203,6 +205,134 @@ function StoreSettings() {
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ GST & invoices
+
+function GstSettings() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { reload } = useSession();
+  const s = useQuery({ queryKey: ['settings'], queryFn: () => get<Record<string, string>>('/api/settings') });
+  const periods = useQuery({ queryKey: ['gst-periods'], queryFn: () => get<{ month: string; filed_at: string | null; filed_by_name: string | null; note: string | null; bills: number }[]>('/api/gst/periods') });
+  const [f, setF] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (s.data)
+      setF({
+        salesPriceMode: s.data.salesPriceMode!,
+        purchasePriceMode: s.data.purchasePriceMode!,
+        invoiceLabels: s.data.invoiceLabels!,
+        creditNotePrefix: s.data.creditNotePrefix!,
+        debitNotePrefix: s.data.debitNotePrefix!,
+      });
+  }, [s.data]);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await put('/api/settings', { ...f, creditNotePrefix: f.creditNotePrefix?.toUpperCase().trim(), debitNotePrefix: f.debitNotePrefix?.toUpperCase().trim() });
+      toast({ tone: 'good', text: 'Saved' });
+      await qc.invalidateQueries({ queryKey: ['settings'] });
+      await reload();
+    } catch (e) {
+      toast({ tone: 'bad', text: err(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const setFiled = async (month: string, filed: boolean) => {
+    const note = filed ? (prompt(`Mark GSTR-1 for ${month} as filed? Bills of that month can then only be corrected with credit notes.\n\nNote (optional, e.g. ARN):`) ?? null) : null;
+    if (filed && note === null) return;
+    if (!filed && !confirm(`Re-open ${month}? Only do this if the return was not actually filed.`)) return;
+    try {
+      await post(`/api/gst/periods/${month}`, { filed, note: note || undefined });
+      await qc.invalidateQueries({ queryKey: ['gst-periods'] });
+    } catch (e) {
+      toast({ tone: 'bad', text: err(e) });
+    }
+  };
+  const t = (k: string) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card title="Prices and invoices">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="New bill lines: prices typed" hint="Staff can still switch each bill or line">
+            <Select value={f.salesPriceMode ?? 'excl'} onChange={t('salesPriceMode')}>
+              <option value="excl">Excluding GST</option>
+              <option value="incl">Including GST</option>
+            </Select>
+          </Field>
+          <Field label="Purchases: line amounts typed">
+            <Select value={f.purchasePriceMode ?? 'excl'} onChange={t('purchasePriceMode')}>
+              <option value="excl">Before GST</option>
+              <option value="incl">Including GST</option>
+            </Select>
+          </Field>
+          <Field label="Invoice labels">
+            <Select value={f.invoiceLabels ?? 'te-en'} onChange={t('invoiceLabels')}>
+              <option value="en">English</option>
+              <option value="te-en">English + Telugu</option>
+            </Select>
+          </Field>
+          <div />
+          <Field label="Credit note prefix" hint={`e.g. ${f.creditNotePrefix || 'CN'}/26-27/000001`}>
+            <Input value={f.creditNotePrefix ?? ''} onChange={t('creditNotePrefix')} maxLength={4} />
+          </Field>
+          <Field label="Debit note prefix" hint={`e.g. ${f.debitNotePrefix || 'DN'}/26-27/000001`}>
+            <Input value={f.debitNotePrefix ?? ''} onChange={t('debitNotePrefix')} maxLength={4} />
+          </Field>
+        </div>
+        <div className="mt-4">
+          <Button variant="primary" busy={busy} onClick={save}>
+            Save
+          </Button>
+        </div>
+      </Card>
+      <Card title="GST months (GSTR-1 filed)">
+        <p className="mb-3 text-sm text-ink-3">
+          After your CA files GSTR-1 for a month, mark it here. Bills of that month can then no longer be cancelled; mistakes are corrected with a credit note (Sales → Return items).
+        </p>
+        <div className="-mx-4 -mb-4 overflow-hidden">
+          <Table
+            minWidth={420}
+            head={
+              <tr>
+                <th>Month</th>
+                <th className="text-right">Bills</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            }
+          >
+            {(periods.data ?? []).map((p) => (
+              <tr key={p.month}>
+                <td className="num font-semibold">{p.month}</td>
+                <td className="num text-right">{p.bills}</td>
+                <td>
+                  {p.filed_at ? (
+                    <>
+                      <Badge tone="good">Filed</Badge>{' '}
+                      <span className="text-xs text-ink-3">
+                        {fmtDateTime(p.filed_at)} · {p.filed_by_name}
+                        {p.note ? ` · ${p.note}` : ''}
+                      </span>
+                    </>
+                  ) : (
+                    <Badge>Open</Badge>
+                  )}
+                </td>
+                <td className="text-right">
+                  <button type="button" className="text-[13px] font-semibold hover:underline" onClick={() => void setFiled(p.month, !p.filed_at)}>
+                    {p.filed_at ? 'Re-open' : 'Mark filed'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </div>
+      </Card>
     </div>
   );
 }

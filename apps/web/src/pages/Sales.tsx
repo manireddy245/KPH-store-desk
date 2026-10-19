@@ -8,7 +8,8 @@ import { useOverride } from '../lib/override';
 import { useSession } from '../lib/session';
 import type { InvoiceFull, InvoiceListRow } from '../lib/types';
 import { Page } from '../components/Layout';
-import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, useDebounced, useToast } from '../components/ui';
+import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, cx, useDebounced, useToast } from '../components/ui';
+import { SalesReturnModal } from './Returns';
 
 export function Sales() {
   const [params, setParams] = useSearchParams();
@@ -112,6 +113,7 @@ export function Sales() {
         {!list.isLoading && rows.length === 0 && <Empty>No bills in this period.</Empty>}
       </div>
       <InvoiceModal id={openId} onClose={() => setParams({})} />
+      <CreditNotes />
     </Page>
   );
 }
@@ -123,6 +125,7 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
   const askOverride = useOverride();
   const inv = useQuery({ queryKey: ['invoice', id], queryFn: () => get<InvoiceFull>(`/api/invoices/${id}`), enabled: id != null });
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -164,14 +167,17 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
   return (
     <>
       <Modal
-        open={id != null && !cancelOpen}
+        open={id != null && !cancelOpen && !returnOpen}
         onClose={onClose}
         title={d ? `Bill ${d.number}` : 'Bill'}
         width={860}
         footer={
           d && (
             <>
-              {d.status === 'posted' && (can('billing.cancel') || can('billing.create')) && (
+              {d.status === 'posted' && d.lines.some((l) => l.qty_milli > (l.returned_qty_milli ?? 0)) && (can('returns.create') || can('billing.create')) && (
+                <Button onClick={() => setReturnOpen(true)}>Return items…</Button>
+              )}
+              {d.status === 'posted' && !d.credit_notes?.some((c) => c.status === 'posted') && (can('billing.cancel') || can('billing.create')) && (
                 <Button variant="danger" onClick={() => setCancelOpen(true)}>
                   Cancel bill…
                 </Button>
@@ -251,9 +257,21 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
               <span className="border-t border-ink pt-1.5 text-right text-lg font-extrabold">₹{formatPaise(d.total_paise)}</span>
             </div>
             {d.notes && <div className="text-ink-3">Note: {d.notes}</div>}
+            {d.supply_type === 'inter' && <div className="text-ink-3">Inter-state sale (IGST) · place of supply {d.place_of_supply}</div>}
+            {d.credit_notes?.length > 0 && (
+              <Notice tone="warn">
+                Returns on this bill:{' '}
+                {d.credit_notes.map((c) => (
+                  <a key={c.id} href={`/print/credit-note/${c.id}`} target="_blank" rel="noreferrer" className="num mr-3 font-semibold underline">
+                    {c.number} (₹{formatPaise(c.total_paise)})
+                  </a>
+                ))}
+              </Notice>
+            )}
           </div>
         )}
       </Modal>
+      <SalesReturnModal invoice={d ?? null} open={returnOpen} onClose={() => setReturnOpen(false)} />
       <Modal
         open={cancelOpen}
         onClose={() => setCancelOpen(false)}
@@ -288,5 +306,59 @@ function Info({ k, v, sub }: { k: string; v: string; sub?: string }) {
       <div className="font-semibold">{v}</div>
       {sub && <div className="text-xs text-ink-3">{sub}</div>}
     </div>
+  );
+}
+
+function CreditNotes() {
+  const [open, setOpen] = useState(false);
+  const q = useQuery({
+    queryKey: ['credit-notes'],
+    queryFn: () => get<{ id: number; number: string; note_date: string; total_paise: number; refund_mode: string; reason: string; invoice_number: string; customer_name: string | null; user_name: string }[]>('/api/credit-notes'),
+    enabled: open,
+  });
+  return (
+    <section className="rounded-[6px] border border-line bg-white">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between px-4 py-3 text-left">
+        <span className="headline text-lg">Sales returns (credit notes)</span>
+        <span className={cx('text-sm text-ink-3 transition-transform', open && 'rotate-180')}>▾</span>
+      </button>
+      {open && (
+        <div className="border-t border-line">
+          <Table
+            head={
+              <tr>
+                <th>Credit note</th>
+                <th>Date</th>
+                <th>Against bill</th>
+                <th>Customer</th>
+                <th>Money back</th>
+                <th className="text-right">Amount</th>
+              </tr>
+            }
+          >
+            {(q.data ?? []).map((c) => (
+              <tr key={c.id}>
+                <td className="num font-semibold">
+                  <a href={`/print/credit-note/${c.id}`} target="_blank" rel="noreferrer" className="hover:underline">
+                    {c.number}
+                  </a>
+                </td>
+                <td className="num">{fmtDate(c.note_date)}</td>
+                <td className="num">{c.invoice_number}</td>
+                <td>
+                  {c.customer_name ?? 'Walk-in'}
+                  <div className="text-xs text-ink-3">
+                    “{c.reason}” · {c.user_name}
+                  </div>
+                </td>
+                <td>{c.refund_mode === 'account' ? 'To account' : MODE_LABEL[c.refund_mode]}</td>
+                <td className="num text-right font-bold">₹{formatPaise(c.total_paise)}</td>
+              </tr>
+            ))}
+          </Table>
+          {q.data?.length === 0 && <Empty>No returns yet.</Empty>}
+        </div>
+      )}
+    </section>
   );
 }

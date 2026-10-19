@@ -19,7 +19,7 @@ import { Customers } from './pages/Customers';
 import { Suppliers } from './pages/Suppliers';
 import { Activity } from './pages/Activity';
 import { Settings } from './pages/Settings';
-import { InvoicePrint } from './pages/InvoicePrint';
+import { CreditNotePrint, InvoicePrint } from './pages/InvoicePrint';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +39,7 @@ function App() {
     <OverrideProvider>
       <Routes>
         <Route path="/print/invoice/:id" element={<InvoicePrint />} />
+        <Route path="/print/credit-note/:id" element={<CreditNotePrint />} />
         <Route element={<Layout />}>
           <Route path="/billing" element={<Billing />} />
           <Route path="/dashboard" element={<Dashboard />} />

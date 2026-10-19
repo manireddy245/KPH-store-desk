@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
+  B2C_DETAILS_THRESHOLD_PAISE,
+  BASE,
+  STATES,
   calcBill,
   calcLine,
+  convertRate,
   discountHintCode,
   effectiveMaxDiscountBp,
   formatPaise,
   formatPercent,
   formatQty,
-  limitToBp,
   parsePercent,
   parseQty,
   parseRupees,
+  toBase,
+  unitPrice,
+  type PriceMode,
+  type SupplyType,
 } from '@kph/core';
 import { ApiError, del, get, post, put, qs, store } from '../lib/api';
 import { MODE_LABEL, uuid } from '../lib/format';
@@ -28,6 +35,8 @@ interface Line {
   qtyText: string;
   discText: string;
   rateText: string | null; // set only when admin changes the rate
+  unitCode?: string | null;
+  mode?: PriceMode;
   overrideToken?: string;
   overrideBp?: number;
   approvedBy?: string;
@@ -36,9 +45,13 @@ interface Line {
 interface Draft {
   clientRef: string;
   lines: Line[];
-  customer: Pick<CustomerRow, 'id' | 'name' | 'phone' | 'address' | 'balance_paise' | 'credit_limit_paise'> | null;
+  customer: (Pick<CustomerRow, 'id' | 'name' | 'phone' | 'address' | 'balance_paise' | 'credit_limit_paise'> & { gstin?: string | null }) | null;
   walkinName: string;
   walkinPhone: string;
+  walkinAddress?: string;
+  /** GST place of supply; null = automatic */
+  pos?: string | null;
+  billMode?: PriceMode;
   mode: Mode;
   notes: string;
   savedAt?: string;
@@ -48,6 +61,12 @@ const emptyDraft = (): Draft => ({ clientRef: uuid(), lines: [], customer: null,
 const MODES: Mode[] = ['cash', 'upi', 'card', 'credit'];
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** The unit a line is sold in (base unit unless another sale unit is chosen). */
+function unitFor(p: ProductRow, code: string | null | undefined) {
+  const u = code && code !== p.unit_code ? p.units.find((x) => x.unit_code === code && x.for_sale) : undefined;
+  return u ? { code: u.unit_code, factor: { num: u.factor_num, den: u.factor_den }, ownPrice: u.price_paise } : { code: p.unit_code, factor: BASE, ownPrice: null as number | null };
+}
 
 export function Billing() {
   const { boot, user, can } = useSession();
@@ -101,38 +120,64 @@ export function Billing() {
   const canRate = can('products.edit_price');
   const hintOn = boot?.settings.discountHintEnabled ?? true;
 
+  const shopState = boot?.settings.stateCode ?? '37';
+  const billMode: PriceMode = draft.billMode ?? boot?.settings.salesPriceMode ?? 'excl';
+  const custState = draft.customer?.gstin ? draft.customer.gstin.slice(0, 2) : null;
+  const pos = draft.pos ?? custState ?? shopState;
+  const supply: SupplyType = pos === shopState ? 'intra' : 'inter';
+
+  const baseOf = (l: Line) => {
+    const p = byId.get(l.productId);
+    const q = parseQty(l.qtyText);
+    if (!p || q == null) return 0;
+    const u = unitFor(p, l.unitCode);
+    return toBase(q, u.factor).baseMilli;
+  };
+
   const rows = draft.lines.map((l) => {
     const p = byId.get(l.productId);
     const qtyMilli = parseQty(l.qtyText);
     const discBp = l.discText === '' ? 0 : parsePercent(l.discText);
-    const ratePaise = l.rateText != null ? parseRupees(l.rateText) : (p?.sale_price_paise ?? 0);
+    const mode: PriceMode = l.mode ?? billMode;
+    const unit = p ? unitFor(p, l.unitCode) : { code: '', factor: BASE, ownPrice: null };
+    const listRate = p ? convertRate(unit.ownPrice ?? unitPrice(p.sale_price_paise, unit.factor), p.price_includes_tax ? 'incl' : 'excl', mode, p.gst_rate_bp) : 0;
+    const ratePaise = l.rateText != null ? parseRupees(l.rateText) : listRate;
+    const scale = (t: 'pct' | 'amt' | null, v: number | null) => (t && v != null ? (t === 'amt' ? { type: t, value: unitPrice(v, unit.factor) } : { type: t, value: v }) : null);
     const maxBp = p
       ? effectiveMaxDiscountBp({
-          productLimit: p.max_disc_type ? { type: p.max_disc_type, value: p.max_disc_value! } : null,
-          categoryLimit: p.cat_disc_type ? { type: p.cat_disc_type, value: p.cat_disc_value! } : null,
+          productLimit: scale(p.max_disc_type, p.max_disc_value),
+          categoryLimit: scale(p.cat_disc_type, p.cat_disc_value),
           staffCapBp: canOver ? null : (user?.discountCapBp ?? null),
-          ratePaise: ratePaise ?? 0,
+          ratePaise: convertRate(ratePaise ?? 0, mode, 'excl', p.gst_rate_bp),
         })
       : 0;
-    const productBp = p ? limitToBp(p.max_disc_type ? { type: p.max_disc_type, value: p.max_disc_value! } : p.cat_disc_type ? { type: p.cat_disc_type, value: p.cat_disc_value! } : { type: 'pct', value: 0 }, ratePaise ?? 0) : 0;
     const valid = !!p && qtyMilli != null && qtyMilli > 0 && discBp != null && discBp <= 10000 && ratePaise != null;
-    const result = valid ? calcLine({ qtyMilli: qtyMilli!, ratePaise: ratePaise!, discountBp: discBp!, gstRateBp: p!.gst_rate_bp }) : null;
+    const result = valid ? calcLine({ qtyMilli: qtyMilli!, ratePaise: ratePaise!, discountBp: discBp!, gstRateBp: p!.gst_rate_bp, mode }, supply) : null;
     const over = valid && discBp! > maxBp;
     const approved = over && !!l.overrideToken && (l.overrideBp ?? -1) >= discBp!;
     const blocked = over && !canOver && !approved;
-    const usedElsewhere = draft.lines.filter((o) => o.productId === l.productId && o.key !== l.key).reduce((s, o) => s + (parseQty(o.qtyText) ?? 0), 0);
+    const baseMilli = baseOf(l);
+    const usedElsewhere = draft.lines.filter((o) => o.productId === l.productId && o.key !== l.key).reduce((s, o) => s + baseOf(o), 0);
     const available = (p?.qty_milli ?? 0) - usedElsewhere;
-    const short = valid && qtyMilli! > available;
-    return { l, p, qtyMilli, discBp, ratePaise, maxBp, productBp, valid, result, over, approved, blocked, short, available };
+    const short = valid && baseMilli > available;
+    const saleUnits = p ? [p.unit_code, ...p.units.filter((u) => u.for_sale).map((u) => u.unit_code)] : [];
+    return { l, p, qtyMilli, discBp, ratePaise, listRate, mode, unit, saleUnits, baseMilli, maxBp, valid, result, over, approved, blocked, short, available };
   });
 
-  const totals = calcBill(rows.filter((r) => r.valid).map((r) => ({ qtyMilli: r.qtyMilli!, ratePaise: r.ratePaise!, discountBp: r.discBp!, gstRateBp: r.p!.gst_rate_bp })));
+  const totals = calcBill(
+    rows.filter((r) => r.valid).map((r) => ({ qtyMilli: r.qtyMilli!, ratePaise: r.ratePaise!, discountBp: r.discBp!, gstRateBp: r.p!.gst_rate_bp, mode: r.mode })),
+    supply,
+  );
   const units = rows.reduce((s, r) => s + (r.qtyMilli ?? 0), 0);
   const blockedLine = rows.findIndex((r) => r.blocked);
   const invalidLine = rows.findIndex((r) => !r.valid);
   const shortLine = rows.findIndex((r) => r.short);
   const creditProblem = draft.mode === 'credit' && !draft.customer;
-  const canSave = rows.length > 0 && blockedLine < 0 && invalidLine < 0 && shortLine < 0 && !creditProblem;
+  // GST rules (also enforced by the server)
+  const b2bNoAddress = !!draft.customer?.gstin && !draft.customer.address;
+  const bigNoDetails =
+    !draft.customer?.gstin && totals.totalPaise >= B2C_DETAILS_THRESHOLD_PAISE && !(draft.customer ? draft.customer.address : draft.walkinName.trim() && draft.walkinAddress?.trim());
+  const canSave = rows.length > 0 && blockedLine < 0 && invalidLine < 0 && shortLine < 0 && !creditProblem && !b2bNoAddress && !bigNoDetails;
 
   // ------------------------------------------------------------ search
   const searchRef = useRef<HTMLInputElement>(null);
@@ -142,12 +187,19 @@ export function Billing() {
   const matches = useMemo(() => {
     const words = norm(q).split(' ').filter(Boolean);
     if (!words.length) return [];
+    // Every typed word must appear; words that start a word in the name rank higher ("12" → "12mm" before "112").
     return (products.data ?? [])
-      .filter((p) => {
+      .map((p) => {
         const hay = norm(`${p.name} ${p.sku} ${p.brand_name ?? ''} ${p.category_name ?? ''}`);
-        return words.every((w) => hay.includes(w));
+        if (!words.every((w) => hay.includes(w))) return null;
+        const nameWords = norm(p.name).split(' ');
+        const score = words.reduce((s, w) => s + (nameWords.some((x) => x === w) ? 3 : nameWords.some((x) => x.startsWith(w)) ? 2 : 0), 0);
+        return { p, score };
       })
-      .slice(0, 8);
+      .filter((x): x is { p: ProductRow; score: number } => x != null)
+      .sort((a, b) => b.score - a.score || a.p.name.length - b.p.name.length)
+      .slice(0, 8)
+      .map((x) => x.p);
   }, [q, products.data]);
   useEffect(() => setCursor(0), [q]);
 
@@ -164,7 +216,7 @@ export function Billing() {
 
   const addProduct = (p: ProductRow) => {
     const key = uuid();
-    setDraft((d) => ({ ...d, lines: [...d.lines, { key, productId: p.id, qtyText: '1', discText: '', rateText: null }] }));
+    setDraft((d) => ({ ...d, lines: [...d.lines, { key, productId: p.id, qtyText: '1', discText: '', rateText: null, unitCode: null, mode: d.billMode ?? boot?.settings.salesPriceMode ?? 'excl' }] }));
     setQ('');
     setFocusKey(key);
   };
@@ -218,11 +270,15 @@ export function Billing() {
         customerId: draft.customer?.id ?? null,
         customerName: draft.customer ? undefined : draft.walkinName || undefined,
         customerPhone: draft.customer ? undefined : draft.walkinPhone || undefined,
+        customerAddress: draft.customer ? undefined : draft.walkinAddress?.trim() || undefined,
+        placeOfSupply: pos,
         paymentMode: draft.mode,
         notes: draft.notes || undefined,
         lines: rows.map((x) => ({
           productId: x.p!.id,
           qtyMilli: x.qtyMilli!,
+          unitCode: x.unit.code,
+          rateMode: x.mode,
           ratePaise: x.l.rateText != null ? x.ratePaise! : undefined,
           discountBp: x.discBp!,
           overrideToken: x.over ? x.l.overrideToken : undefined,
@@ -374,7 +430,7 @@ export function Billing() {
                   <th className="w-7">#</th>
                   <th>Item</th>
                   <th className="w-24 text-right">Qty</th>
-                  <th className="w-28 text-right">Rate excl. GST</th>
+                  <th className="w-28 text-right">Rate {billMode === 'incl' ? 'incl.' : 'excl.'} GST</th>
                   <th className="w-[108px] text-right">Disc %</th>
                   <th className="w-28 text-right">Taxable</th>
                   <th className="w-24 text-right">GST</th>
@@ -408,8 +464,11 @@ export function Billing() {
                       {expanded === r.l.key && r.result && r.p && (
                         <div className="num mt-1.5 rounded-[4px] bg-concrete px-2 py-1.5 text-xs text-ink-2">
                           {formatQty(r.qtyMilli!)} × ₹{formatPaise(r.ratePaise!)} = ₹{formatPaise(r.result.grossPaise)}
-                          {r.discBp ? ` − ${formatPercent(r.discBp)}% (₹${formatPaise(r.result.discountPaise)})` : ''} = taxable ₹{formatPaise(r.result.taxablePaise)} + CGST {formatPercent(r.p.gst_rate_bp / 2)}% ₹
-                          {formatPaise(r.result.cgstPaise)} + SGST {formatPercent(r.p.gst_rate_bp / 2)}% ₹{formatPaise(r.result.sgstPaise)} = ₹{formatPaise(r.result.totalPaise)}
+                          {r.discBp ? ` − ${formatPercent(r.discBp)}% (₹${formatPaise(r.result.discountPaise)})` : ''} = {r.mode === 'incl' ? `₹${formatPaise(r.result.amountPaise)} incl. GST → ` : ''}taxable ₹{formatPaise(r.result.taxablePaise)} +{' '}
+                          {supply === 'intra'
+                            ? `CGST ${formatPercent(r.p.gst_rate_bp / 2)}% ₹${formatPaise(r.result.cgstPaise)} + SGST ${formatPercent(r.p.gst_rate_bp / 2)}% ₹${formatPaise(r.result.sgstPaise)}`
+                            : `IGST ${formatPercent(r.p.gst_rate_bp)}% ₹${formatPaise(r.result.igstPaise)}`}{' '}
+                          = ₹{formatPaise(r.result.amountPaise)}
                         </div>
                       )}
                       {r.blocked && (
@@ -442,20 +501,41 @@ export function Billing() {
                         }}
                         className={cx('num h-9 w-full rounded-[6px] border bg-white px-2.5 text-right outline-none focus:border-teal focus:ring-4 focus:ring-teal-soft', r.qtyMilli == null || r.short ? 'border-bad' : 'border-line-2')}
                       />
-                      <div className="mt-0.5 text-[11px] text-cement">{r.p?.unit_code}</div>
+                      {r.saleUnits.length > 1 ? (
+                        <select
+                          aria-label="Unit"
+                          value={r.unit.code}
+                          onChange={(e) => updateLine(r.l.key, { unitCode: e.target.value, rateText: null })}
+                          className="mt-0.5 w-full rounded-[4px] border border-line bg-white px-1 text-right text-[11px]"
+                        >
+                          {r.saleUnits.map((u) => (
+                            <option key={u}>{u}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="mt-0.5 text-[11px] text-cement">{r.unit.code}</div>
+                      )}
                     </td>
-                    <td className="num pt-[18px] text-right">
+                    <td className="num text-right">
                       {canRate ? (
                         <input
-                          aria-label="Rate excluding GST"
+                          aria-label={`Rate ${r.mode === 'incl' ? 'including' : 'excluding'} GST`}
                           inputMode="decimal"
-                          value={r.l.rateText ?? formatPaise(r.p?.sale_price_paise ?? 0).replace(/,/g, '')}
+                          value={r.l.rateText ?? formatPaise(r.listRate).replace(/,/g, '')}
                           onChange={(e) => updateLine(r.l.key, { rateText: e.target.value })}
                           className={cx('num h-9 w-full rounded-[6px] border bg-white px-2 text-right outline-none focus:border-teal', r.ratePaise == null ? 'border-bad' : r.l.rateText != null ? 'border-warn' : 'border-line-2')}
                         />
                       ) : (
                         <div className="pt-2">{r.ratePaise != null ? formatPaise(r.ratePaise) : '—'}</div>
                       )}
+                      <button
+                        type="button"
+                        title="Switch this line between price excluding and including GST"
+                        onClick={() => updateLine(r.l.key, { mode: r.mode === 'incl' ? 'excl' : 'incl', rateText: null })}
+                        className={cx('mt-0.5 rounded-[3px] px-1 text-[10px] font-bold', r.mode === 'incl' ? 'bg-teal-soft text-teal' : 'text-cement hover:text-ink')}
+                      >
+                        {r.mode === 'incl' ? 'INCL. GST' : 'excl. GST'}
+                      </button>
                     </td>
                     <td className="text-right">
                       <input
@@ -485,8 +565,8 @@ export function Billing() {
                       )}
                     </td>
                     <td className="num pt-[18px] text-right">{r.result ? formatPaise(r.result.taxablePaise) : '—'}</td>
-                    <td className="num pt-[18px] text-right text-ink-3">{r.result ? formatPaise(r.result.cgstPaise + r.result.sgstPaise) : '—'}</td>
-                    <td className="num pt-[18px] text-right font-bold">{r.result ? formatPaise(r.result.totalPaise) : '—'}</td>
+                    <td className="num pt-[18px] text-right text-ink-3">{r.result ? formatPaise(r.result.cgstPaise + r.result.sgstPaise + r.result.igstPaise) : '—'}</td>
+                    <td className="num pt-[18px] text-right font-bold">{r.result ? formatPaise(r.result.amountPaise) : '—'}</td>
                     <td className="pt-3.5">
                       <button type="button" aria-label={`Remove ${r.p?.name ?? 'line'}`} onClick={() => removeLine(r.l.key)} className="grid size-7 place-items-center rounded-[4px] text-cement hover:bg-bad-soft hover:text-bad">
                         <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -498,7 +578,24 @@ export function Billing() {
             </table>
           </div>
           <div className="flex flex-wrap justify-between gap-2 bg-paper px-3.5 py-2.5 text-xs text-ink-3">
-            <span>Click a line to see how its amount is worked out. Prices are typed excluding GST.</span>
+            <span className="flex flex-wrap items-center gap-2">
+              Prices typed
+              <span role="radiogroup" aria-label="Prices typed including or excluding GST" className="inline-flex overflow-hidden rounded-[4px] border border-line-2 bg-white">
+                {(['excl', 'incl'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={billMode === m}
+                    onClick={() => setDraft((d) => ({ ...d, billMode: m, lines: d.lines.map((l) => ({ ...l, mode: m, rateText: null })) }))}
+                    className={cx('h-6 px-2 text-[11px] font-bold', billMode === m ? 'bg-teal text-white' : 'text-ink-2')}
+                  >
+                    {m === 'excl' ? 'Excl. GST' : 'Incl. GST'}
+                  </button>
+                ))}
+              </span>
+              · click a line to see how its amount is worked out
+            </span>
             <span className="num">
               {rows.length} items · {formatQty(units)} units
             </span>
@@ -565,7 +662,7 @@ export function Billing() {
                       type="button"
                       key={c.id}
                       onClick={() => {
-                        setDraft((d) => ({ ...d, customer: c }));
+                        setDraft((d) => ({ ...d, customer: c, pos: null }));
                         setCustQ('');
                       }}
                       className="flex w-full items-center justify-between gap-2 border-t border-line-3 px-3 py-2 text-left first:border-t-0 hover:bg-teal-soft"
@@ -584,10 +681,11 @@ export function Billing() {
                   )}
                 </div>
               )}
-              <div className="text-xs text-ink-3">Walk-in (optional name and phone for the bill):</div>
+              <div className="text-xs text-ink-3">Walk-in (optional name and phone; name and address needed for bills of ₹50,000 or more):</div>
               <div className="grid grid-cols-2 gap-2">
                 <Input aria-label="Walk-in name" placeholder="Name" value={draft.walkinName} onChange={(e) => setDraft((d) => ({ ...d, walkinName: e.target.value }))} />
                 <Input aria-label="Walk-in phone" placeholder="Phone" inputMode="tel" value={draft.walkinPhone} onChange={(e) => setDraft((d) => ({ ...d, walkinPhone: e.target.value }))} />
+                <Input aria-label="Walk-in address" placeholder="Address / village" className="col-span-2" value={draft.walkinAddress ?? ''} onChange={(e) => setDraft((d) => ({ ...d, walkinAddress: e.target.value }))} />
               </div>
             </div>
           )}
@@ -611,6 +709,23 @@ export function Billing() {
             ))}
           </div>
           {creditProblem && <div className="text-xs text-bad">Choose a customer for a credit bill.</div>}
+          <label className="mt-1 flex items-center justify-between gap-2 text-xs text-ink-3">
+            <span>
+              Place of supply {supply === 'inter' && <b className="text-teal">· IGST</b>}
+            </span>
+            <select
+              aria-label="Place of supply"
+              value={pos}
+              onChange={(e) => setDraft((d) => ({ ...d, pos: e.target.value === (custState ?? shopState) ? null : e.target.value }))}
+              className="max-w-[60%] rounded-[4px] border border-line bg-white px-1 py-0.5 text-xs text-ink"
+            >
+              {Object.entries(STATES).map(([code, name]) => (
+                <option key={code} value={code}>
+                  {name} ({code})
+                </option>
+              ))}
+            </select>
+          </label>
           {balanceAfter != null && (
             <div className={cx('num text-xs', overLimit ? 'font-bold text-bad' : 'text-ink-3')}>
               After this bill: balance ₹{formatPaise(balanceAfter)}
@@ -624,8 +739,14 @@ export function Billing() {
           <Row label="Gross" value={`₹${formatPaise(totals.grossPaise)}`} />
           <Row label="Discount" value={totals.discountPaise ? `− ₹${formatPaise(totals.discountPaise)}` : '₹0.00'} />
           <Row label="Taxable value" value={`₹${formatPaise(totals.taxablePaise)}`} />
-          <Row label="CGST" value={`₹${formatPaise(totals.cgstPaise)}`} />
-          <Row label="SGST" value={`₹${formatPaise(totals.sgstPaise)}`} />
+          {supply === 'intra' ? (
+            <>
+              <Row label="CGST" value={`₹${formatPaise(totals.cgstPaise)}`} />
+              <Row label="SGST" value={`₹${formatPaise(totals.sgstPaise)}`} />
+            </>
+          ) : (
+            <Row label="IGST" value={`₹${formatPaise(totals.igstPaise)}`} />
+          )}
           <Row label="Round off" value={`${totals.roundOffPaise < 0 ? '− ' : ''}₹${formatPaise(Math.abs(totals.roundOffPaise))}`} />
           <div className="my-1.5 h-px bg-line" />
           <div className="flex items-baseline justify-between">
@@ -636,6 +757,8 @@ export function Billing() {
           </div>
         </div>
 
+        {b2bNoAddress && <Notice tone="bad">{draft.customer?.name} is a registered business. Add their address in Customers — it must be on the GST bill.</Notice>}
+        {bigNoDetails && <Notice tone="bad">Bills of ₹50,000 or more need the customer’s name and address (GST rule). Choose the customer, or type the walk-in name and address.</Notice>}
         {blockedLine >= 0 && <Notice tone="bad">Line {blockedLine + 1} needs admin approval before this bill can be saved.</Notice>}
         {shortLine >= 0 && blockedLine < 0 && <Notice tone="bad">Line {shortLine + 1} has more than the stock available.</Notice>}
         {invalidLine >= 0 && <Notice tone="bad">Line {invalidLine + 1} has a quantity, rate or discount that isn’t a valid number.</Notice>}
@@ -678,7 +801,7 @@ export function Billing() {
         initialName={custQ}
         onClose={() => setAddCustomerOpen(false)}
         onCreated={(c) => {
-          setDraft((d) => ({ ...d, customer: c }));
+          setDraft((d) => ({ ...d, customer: c, pos: null }));
           setCustQ('');
           setAddCustomerOpen(false);
         }}

@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import Papa from 'papaparse';
-import { parsePercent, parseQty, parseRupees } from '@kph/core';
+import { isValidGstin, parsePercent, parseQty, parseRupees } from '@kph/core';
 import type { Sql } from '../db/connect.js';
 import { AppError, audit, requirePerm, type Ctx } from './common.js';
 import { createPartyLedger } from './ledger.js';
@@ -275,7 +275,7 @@ export async function analyse(
         }
       }
       const gstin = get(r, 'gstin').toUpperCase().replace(/\s/g, '');
-      if (gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin)) warnings.push(`GSTIN "${gstin}" is not valid — ignored`);
+      if (gstin && !isValidGstin(gstin)) warnings.push(`GSTIN "${gstin}" is not valid (check digit) — ignored`);
       else v.gstin = gstin || null;
       v.address = get(r, 'address') || null;
       if (kind === 'customers') {

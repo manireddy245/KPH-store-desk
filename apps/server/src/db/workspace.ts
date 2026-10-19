@@ -89,7 +89,19 @@ export class Workspaces {
     const app = connect(this.url(db, 'app'), { max: 10 });
     if (created && name === 'sample') {
       console.log('[db] loading sample data…');
-      await seedSample(app);
+      try {
+        await seedSample(app);
+      } catch (e) {
+        // Never leave a half-loaded sample database behind: drop it so the next start loads it again.
+        await Promise.allSettled([app.end({ timeout: 5 }), owner.end({ timeout: 5 })]);
+        const cleanup = connect(this.url('postgres', 'owner'), { max: 1 });
+        try {
+          await cleanup.unsafe(`drop database if exists ${db}`);
+        } finally {
+          await cleanup.end();
+        }
+        throw e;
+      }
     }
     const old = this.app ? [this.app, this.owner] : [];
     this.app = app;
@@ -111,7 +123,12 @@ export class Workspaces {
       await admin.end();
     }
     this.app = undefined as unknown as Sql;
-    await this.open('sample');
+    try {
+      await this.open('sample');
+    } catch (e) {
+      console.error('[db] sample data could not be loaded:', (e as Error).message);
+      throw e;
+    }
   }
 
   async stop() {

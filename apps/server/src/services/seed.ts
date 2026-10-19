@@ -55,10 +55,10 @@ const PRODUCTS: P[] = [
   ['SMP-UT-TF-20', 'UltraTech Tilefixo NT Tile Adhesive 20kg', 'Tile Adhesives', 'UltraTech', 'bag', '3214', 560, 470, 45, 15],
   ['SMP-UT-TF-CT1', 'UltraTech Tilefixo CT1 Adhesive 20kg', 'Tile Adhesives', 'UltraTech', 'bag', '3214', 640, 535, 30, 10],
   // Steel is stocked and sold in rods; bought in tonnes (rods per tonne set per size).
-  ['SMP-JSW-08', 'JSW Neosteel TMT 8mm (12m rod)', 'Steel', 'JSW', 'rod', '7214', 294, 270, 527, 170],
-  ['SMP-JSW-10', 'JSW Neosteel TMT 10mm (12m rod)', 'Steel', 'JSW', 'rod', '7214', 452, 415, 405, 135],
-  ['SMP-JSW-12', 'JSW Neosteel TMT 12mm (12m rod)', 'Steel', 'JSW', 'rod', '7214', 645, 592, 375, 112],
-  ['SMP-JSW-16', 'JSW Neosteel TMT 16mm (12m rod)', 'Steel', 'JSW', 'rod', '7214', 1138, 1043, 105, 42],
+  ['SMP-JSW-08', 'JSW Neosteel TMT 8mm rod', 'Steel', 'JSW', 'rod', '7214', 294, 270, 527, 170],
+  ['SMP-JSW-10', 'JSW Neosteel TMT 10mm rod', 'Steel', 'JSW', 'rod', '7214', 452, 415, 405, 135],
+  ['SMP-JSW-12', 'JSW Neosteel TMT 12mm rod', 'Steel', 'JSW', 'rod', '7214', 645, 592, 375, 112],
+  ['SMP-JSW-16', 'JSW Neosteel TMT 16mm rod', 'Steel', 'JSW', 'rod', '7214', 1138, 1043, 105, 42],
   ['SMP-AS-CPVC-05', 'Astral CPVC Pipe 1/2" (3m)', 'Pipes & Fittings', 'Astral', 'length', '3917', 290, 235, 80, 25],
   ['SMP-AS-CPVC-075', 'Astral CPVC Pipe 3/4" (3m)', 'Pipes & Fittings', 'Astral', 'length', '3917', 440, 360, 60, 20],
   ['SMP-AS-ELB-05', 'Astral CPVC Elbow 1/2"', 'Pipes & Fittings', 'Astral', 'pcs', '3917', 14, 10, 500, 100],
@@ -96,7 +96,7 @@ const CUSTOMERS = [
   { name: 'Srinivasa Reddy (Contractor)', phone: '9848012345', address: 'Musunuru, Kavali', creditLimitPaise: 20000000, openingBalancePaise: 4550000 },
   { name: 'K. Venkateswarlu (Mason)', phone: '9866023456', address: 'Kavali', creditLimitPaise: 5000000 },
   { name: 'P. Ramesh (Painter)', phone: '9963034567', address: 'Bogole', creditLimitPaise: 3000000, openingBalancePaise: 820000 },
-  { name: 'Lakshmi Constructions', phone: '9989045678', address: 'Allur Road, Kavali', gstin: '37AABCL1234F1Z5', creditLimitPaise: 50000000 },
+  { name: 'Lakshmi Constructions', phone: '9989045678', address: 'Allur Road, Kavali', gstin: '37AABCL1234F1ZX', creditLimitPaise: 50000000 },
   { name: 'M. Sudhakar (House owner)', phone: '9177056789', address: 'Gowravaram' },
   { name: 'S. Naresh (Electrician)', phone: '9550067890', address: 'Kavali', creditLimitPaise: 2000000 },
 ];
@@ -114,7 +114,7 @@ export async function seedSample(sql: Sql) {
     storeName: 'Kanakapatnam Paints and Hardwares',
     storeAddress: 'Main Road, Kavali, SPSR Nellore Dist., Andhra Pradesh',
     storePhone: '00000 00000',
-    storeGstin: '37AAAAA0000A1Z5',
+    storeGstin: '37AAAAA0000A1Z1',
   });
   const userIds: number[] = [];
   for (const u of SAMPLE_USERS) userIds.push((await createUser(sql, null, u)).id);

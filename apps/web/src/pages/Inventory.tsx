@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatPaise, formatPercent, formatQty, mulDivRound, parsePercent, parseQty, parseRupees } from '@kph/core';
+import { exclFromIncl, formatPaise, formatPercent, formatQty, inclFromExcl, parsePercent, parseQty, parseRupees, standardRodsPerTonne } from '@kph/core';
 import { ApiError, del, get, patch, post } from '../lib/api';
 import { csvCell, downloadText, fmtDateTime } from '../lib/format';
 import { useSession } from '../lib/session';
 import type { Category, ProductRow } from '../lib/types';
 import { Page } from '../components/Layout';
-import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, cx, useToast } from '../components/ui';
+import { Badge, Button, Checkbox, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, cx, useToast } from '../components/ui';
 
 const statusTone = { ok: 'text-good', low: 'text-warn', out: 'text-bad' } as const;
 
@@ -119,8 +119,8 @@ export function Inventory() {
               <th>Product</th>
               <th>Category</th>
               <th className="text-right">In stock</th>
-              <th className="text-right">Price excl. GST</th>
-              <th className="text-right">Incl. GST</th>
+              <th className="text-right">Price (as kept)</th>
+              <th className="text-right">Other way</th>
               {can('products.view_cost') && <th className="text-right">Cost</th>}
               <th className="text-right">Max disc.</th>
               <th>HSN · GST</th>
@@ -157,7 +157,14 @@ export function Inventory() {
               <td className="num text-right">
                 <InlinePrice p={p} editable={can('products.edit_price')} />
               </td>
-              <td className="num text-right text-ink-3">{formatPaise(p.sale_price_paise + mulDivRound(p.sale_price_paise, p.gst_rate_bp, 10000))}</td>
+              <td className="num text-right text-ink-3">
+                {formatPaise(p.price_includes_tax ? exclFromIncl(p.sale_price_paise, p.gst_rate_bp) : inclFromExcl(p.sale_price_paise, p.gst_rate_bp))}
+                {p.units.filter((u) => u.for_sale).map((u) => (
+                  <div key={u.unit_code} className="text-[11px]">
+                    1 {u.unit_code} = {formatQty(Math.round((u.factor_num * 1000) / u.factor_den))} {p.unit_code}
+                  </div>
+                ))}
+              </td>
               {can('products.view_cost') && <td className="num text-right text-ink-3">{p.cost_price_paise != null ? formatPaise(p.cost_price_paise) : '—'}</td>}
               <td className="num text-right">
                 {p.max_disc_type ? (p.max_disc_type === 'pct' ? `${formatPercent(p.max_disc_value!)}%` : `₹${formatPaise(p.max_disc_value!)} / ${p.unit_code}`) : p.cat_disc_type ? <span className="text-ink-3">{p.cat_disc_type === 'pct' ? `${formatPercent(p.cat_disc_value!)}%` : `₹${formatPaise(p.cat_disc_value!)}`} · cat.</span> : <span className="text-ink-3">0%</span>}
@@ -250,9 +257,10 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
   const { can } = useSession();
   const qc = useQueryClient();
   const toast = useToast();
-  const units = useQuery({ queryKey: ['units'], queryFn: () => get<{ code: string; name: string }[]>('/api/units'), enabled: open });
+  const unitsQ = useQuery({ queryKey: ['units'], queryFn: () => get<{ code: string; name: string }[]>('/api/units'), enabled: open });
   const brands = useQuery({ queryKey: ['brands'], queryFn: () => get<{ id: number; name: string }[]>('/api/brands'), enabled: open });
   const [f, setF] = useState<Record<string, string>>({});
+  const [units, setUnits] = useState<UnitDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const canPrice = can('products.edit_price');
@@ -278,15 +286,28 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
             discType: product.max_disc_type ?? '',
             disc: product.max_disc_value != null ? (product.max_disc_type === 'pct' ? formatPercent(product.max_disc_value) : formatPaise(product.max_disc_value).replace(/,/g, '')) : '',
             active: product.active ? '1' : '0',
+            inclMode: product.price_includes_tax ? '1' : '0',
+            contents: product.contents_milli != null ? formatQty(product.contents_milli) : '',
           }
-        : { sku: '', name: '', categoryId: '', brand: '', unitCode: 'pcs', hsn: '', gst: '18', price: '', cost: '', mrp: '', reorder: '', discType: '', disc: '', opening: '', active: '1' },
+        : { sku: '', name: '', categoryId: '', brand: '', unitCode: 'pcs', hsn: '', gst: '18', price: '', cost: '', mrp: '', reorder: '', discType: '', disc: '', opening: '', active: '1', inclMode: '0', contents: '' },
+    );
+    setUnits(
+      (product?.units ?? []).map((u) => ({
+        unitCode: u.unit_code,
+        factor: u.factor_den === 1 ? String(u.factor_num) : formatQty(Math.round((u.factor_num * 1000) / u.factor_den)),
+        price: u.price_paise != null ? formatPaise(u.price_paise).replace(/,/g, '') : '',
+        forSale: u.for_sale,
+        forPurchase: u.for_purchase,
+      })),
     );
   }, [open, product]);
 
   const set = (k: string) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
   const priceP = parseRupees(f.price ?? '');
   const gstBp = parsePercent(f.gst ?? '');
-  const incl = priceP != null && gstBp != null ? priceP + mulDivRound(priceP, gstBp, 10000) : null;
+  const inclMode = f.inclMode === '1';
+  const other = priceP != null && gstBp != null ? (inclMode ? exclFromIncl(priceP, gstBp) : inclFromExcl(priceP, gstBp)) : null;
+  const steelMm = Number((f.name ?? '').match(/(\d{1,2})\s*mm/i)?.[1] ?? 0);
 
   const submit = async () => {
     setError(null);
@@ -312,6 +333,19 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
       if (f.discType && body.maxDiscValue == null) return setError('Max discount is not valid');
     }
     if (canCost) body.costPricePaise = money(f.cost);
+    if (canPrice) body.priceIncludesTax = inclMode;
+    body.contentsMilli = f.contents?.trim() ? parseQty(f.contents) : null;
+    body.contentsUnit = f.contents?.trim() ? 'ltr' : null;
+    const unitBody = [];
+    for (const u of units) {
+      if (!u.unitCode) continue;
+      const q = parseQty(u.factor);
+      if (q == null || q <= 0) return setError(`How many ${f.unitCode} are in one ${u.unitCode}? Enter a number.`);
+      const price = u.price.trim() ? parseRupees(u.price) : null;
+      if (u.price.trim() && price == null) return setError(`Price for ${u.unitCode} is not valid`);
+      unitBody.push({ unitCode: u.unitCode, factorNum: q % 1000 === 0 ? q / 1000 : q, factorDen: q % 1000 === 0 ? 1 : 1000, forSale: u.forSale, forPurchase: u.forPurchase, ...(canPrice ? { pricePaise: price } : {}) });
+    }
+    body.units = unitBody;
     if (!product && f.opening?.trim()) {
       const q = parseQty(f.opening);
       if (q == null) return setError('Opening stock is not a valid quantity');
@@ -397,7 +431,7 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
         </Field>
         <Field label="Unit (stock is kept in this unit)">
           <Select value={f.unitCode ?? 'pcs'} onChange={set('unitCode')}>
-            {(units.data ?? [{ code: f.unitCode ?? 'pcs', name: f.unitCode ?? 'pcs' }]).map((u) => (
+            {(unitsQ.data ?? [{ code: f.unitCode ?? 'pcs', name: f.unitCode ?? 'pcs' }]).map((u) => (
               <option key={u.code} value={u.code}>
                 {u.code} — {u.name}
               </option>
@@ -410,8 +444,25 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
         <Field label="GST %" hint="18% = 9% CGST + 9% SGST">
           <Input value={f.gst ?? ''} onChange={set('gst')} inputMode="decimal" />
         </Field>
-        <Field label="Selling price excl. GST (₹)" hint={incl != null ? `Incl. GST: ₹${formatPaise(incl)}` : undefined}>
-          <Input value={f.price ?? ''} onChange={set('price')} inputMode="decimal" disabled={!canPrice} />
+        <Field label={`Selling price per ${f.unitCode ?? 'unit'} (₹)`} hint={other != null ? `${inclMode ? 'Excl.' : 'Incl.'} GST: ₹${formatPaise(other)}` : undefined}>
+          <div className="flex gap-2">
+            <Input value={f.price ?? ''} onChange={set('price')} inputMode="decimal" disabled={!canPrice} />
+            <div role="radiogroup" aria-label="Price includes GST?" className="flex shrink-0 overflow-hidden rounded-[6px] border border-line-2">
+              {(['0', '1'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={(f.inclMode ?? '0') === m}
+                  disabled={!canPrice}
+                  onClick={() => setF((x) => ({ ...x, inclMode: m }))}
+                  className={cx('h-10 px-2.5 text-xs font-bold', (f.inclMode ?? '0') === m ? 'bg-teal text-white' : 'bg-white text-ink-2')}
+                >
+                  {m === '0' ? 'Excl. GST' : 'Incl. GST'}
+                </button>
+              ))}
+            </div>
+          </div>
         </Field>
         {canCost && (
           <Field label="Cost price excl. GST (₹)">
@@ -438,6 +489,47 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
             </Field>
           </div>
         )}
+        <div className="flex flex-col gap-2 rounded-[6px] border border-line bg-paper p-3 sm:col-span-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-[13px] font-bold">Other units</span>
+            <span className="text-xs text-ink-3">
+              Stock is kept in <b>{f.unitCode}</b>. Add units you buy or sell in, e.g. tonne for TMT bars.
+            </span>
+          </div>
+          {units.map((u, i) => (
+            <div key={i} className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[110px_1fr_1fr_auto_auto_auto]">
+              <Field label="Unit">
+                <Select value={u.unitCode} onChange={(e) => setUnits(units.map((x, j) => (j === i ? { ...x, unitCode: e.target.value } : x)))}>
+                  <option value="">—</option>
+                  {(unitsQ.data ?? []).filter((x) => x.code !== f.unitCode).map((x) => (
+                    <option key={x.code} value={x.code}>
+                      {x.code}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label={`${f.unitCode} in 1 ${u.unitCode || 'unit'}`} hint={u.unitCode === 'tonne' && f.unitCode === 'rod' && steelMm ? `Standard ≈ ${standardRodsPerTonne(steelMm)} for ${steelMm} mm (12 m rods)` : undefined}>
+                <Input className="num" inputMode="decimal" value={u.factor} onChange={(e) => setUnits(units.map((x, j) => (j === i ? { ...x, factor: e.target.value } : x)))} />
+              </Field>
+              <Field label="Own price (optional)">
+                <Input className="num" inputMode="decimal" value={u.price} disabled={!canPrice} onChange={(e) => setUnits(units.map((x, j) => (j === i ? { ...x, price: e.target.value } : x)))} />
+              </Field>
+              <Checkbox label="Sell" checked={u.forSale} onChange={(v) => setUnits(units.map((x, j) => (j === i ? { ...x, forSale: v } : x)))} />
+              <Checkbox label="Buy" checked={u.forPurchase} onChange={(v) => setUnits(units.map((x, j) => (j === i ? { ...x, forPurchase: v } : x)))} />
+              <Button size="sm" variant="ghost" aria-label="Remove unit" onClick={() => setUnits(units.filter((_, j) => j !== i))}>
+                ✕
+              </Button>
+            </div>
+          ))}
+          <div>
+            <Button size="sm" onClick={() => setUnits([...units, { unitCode: '', factor: '', price: '', forSale: true, forPurchase: true }])}>
+              + Add unit
+            </Button>
+          </div>
+        </div>
+        <Field label="Pack contents in litres (optional)" hint="For paint: 20 for a 20L bucket — used in litre reports">
+          <Input value={f.contents ?? ''} onChange={set('contents')} inputMode="decimal" />
+        </Field>
         {!product && (
           <Field label="Opening stock" hint="Saved as an “opening” stock entry">
             <Input value={f.opening ?? ''} onChange={set('opening')} inputMode="decimal" />
@@ -460,6 +552,14 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
       </form>
     </Modal>
   );
+}
+
+interface UnitDraft {
+  unitCode: string;
+  factor: string;
+  price: string;
+  forSale: boolean;
+  forPurchase: boolean;
 }
 
 const REASONS = ['Damaged', 'Leakage', 'Shortage', 'Counted wrong earlier', 'Found extra stock', 'Opening stock correction'];
