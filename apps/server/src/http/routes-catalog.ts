@@ -37,6 +37,13 @@ const productBody = z.object({
   reorderLevelMilli: money.nullable().optional(),
   active: z.boolean().optional(),
   openingQtyMilli: money.optional(),
+  priceIncludesTax: z.boolean().optional(),
+  contentsMilli: z.number().int().positive().nullable().optional(),
+  contentsUnit: z.string().max(10).nullable().optional(),
+  units: z
+    .array(z.object({ unitCode: z.string().min(1), factorNum: z.number().int().positive(), factorDen: z.number().int().positive().optional(), forSale: z.boolean().optional(), forPurchase: z.boolean().optional(), pricePaise: money.nullable().optional() }))
+    .max(10)
+    .optional(),
   ...disc,
 });
 

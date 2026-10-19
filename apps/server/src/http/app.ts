@@ -12,6 +12,7 @@ import { registerAdminRoutes } from './routes-admin.js';
 import { registerAuthRoutes } from './routes-auth.js';
 import { registerCatalogRoutes } from './routes-catalog.js';
 import { registerPurchaseRoutes } from './routes-purchases.js';
+import { registerReturnRoutes } from './routes-returns.js';
 import { registerSalesRoutes } from './routes-sales.js';
 import type { ModelCaller } from '../services/scanner.js';
 
@@ -108,6 +109,7 @@ export async function buildApp(deps: AppDeps) {
   await registerSalesRoutes(app, shared);
   await registerAdminRoutes(app, shared);
   await registerPurchaseRoutes(app, shared, { scanner: deps.scanner });
+  await registerReturnRoutes(app, shared);
 
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true, workspace: deps.db.name, time: new Date().toISOString() }));
 

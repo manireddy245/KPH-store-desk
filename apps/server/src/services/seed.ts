@@ -54,10 +54,11 @@ const PRODUCTS: P[] = [
   ['SMP-UT-SUP-50', 'UltraTech Super Cement 50kg', 'Cement', 'UltraTech', 'bag', '2523', 345, 318, 150, 60],
   ['SMP-UT-TF-20', 'UltraTech Tilefixo NT Tile Adhesive 20kg', 'Tile Adhesives', 'UltraTech', 'bag', '3214', 560, 470, 45, 15],
   ['SMP-UT-TF-CT1', 'UltraTech Tilefixo CT1 Adhesive 20kg', 'Tile Adhesives', 'UltraTech', 'bag', '3214', 640, 535, 30, 10],
-  ['SMP-JSW-08', 'JSW Neosteel TMT 8mm', 'Steel', 'JSW', 'kg', '7214', 62, 57, 2500, 800],
-  ['SMP-JSW-10', 'JSW Neosteel TMT 10mm', 'Steel', 'JSW', 'kg', '7214', 61, 56, 3000, 1000],
-  ['SMP-JSW-12', 'JSW Neosteel TMT 12mm', 'Steel', 'JSW', 'kg', '7214', 60.5, 55.5, 4000, 1200],
-  ['SMP-JSW-16', 'JSW Neosteel TMT 16mm', 'Steel', 'JSW', 'kg', '7214', 60, 55, 2000, 800],
+  // Steel is stocked and sold in rods; bought in tonnes (rods per tonne set per size).
+  ['SMP-JSW-08', 'JSW Neosteel TMT 8mm (12m rod)', 'Steel', 'JSW', 'rod', '7214', 294, 270, 527, 170],
+  ['SMP-JSW-10', 'JSW Neosteel TMT 10mm (12m rod)', 'Steel', 'JSW', 'rod', '7214', 452, 415, 405, 135],
+  ['SMP-JSW-12', 'JSW Neosteel TMT 12mm (12m rod)', 'Steel', 'JSW', 'rod', '7214', 645, 592, 375, 112],
+  ['SMP-JSW-16', 'JSW Neosteel TMT 16mm (12m rod)', 'Steel', 'JSW', 'rod', '7214', 1138, 1043, 105, 42],
   ['SMP-AS-CPVC-05', 'Astral CPVC Pipe 1/2" (3m)', 'Pipes & Fittings', 'Astral', 'length', '3917', 290, 235, 80, 25],
   ['SMP-AS-CPVC-075', 'Astral CPVC Pipe 3/4" (3m)', 'Pipes & Fittings', 'Astral', 'length', '3917', 440, 360, 60, 20],
   ['SMP-AS-ELB-05', 'Astral CPVC Elbow 1/2"', 'Pipes & Fittings', 'Astral', 'pcs', '3917', 14, 10, 500, 100],
@@ -80,6 +81,16 @@ const PRODUCTS: P[] = [
   ['SMP-HW-MTAPE', 'Masking Tape 1 inch', 'Hardware', 'Generic', 'pcs', '4821', 45, 30, 4, 20],
   ['SMP-HW-PADLOCK', 'Padlock 50mm', 'Hardware', 'Generic', 'pcs', '8301', 240, 180, 0, 5],
 ];
+
+/** Extra units for sample products: steel bought by the tonne, wire by the metre too. */
+const SAMPLE_UNITS: Record<string, { unitCode: string; factorNum: number; factorDen?: number; forSale?: boolean }[]> = {
+  'SMP-JSW-08': [{ unitCode: 'tonne', factorNum: 211, forSale: false }],
+  'SMP-JSW-10': [{ unitCode: 'tonne', factorNum: 135, forSale: false }],
+  'SMP-JSW-12': [{ unitCode: 'tonne', factorNum: 94, forSale: false }],
+  'SMP-JSW-16': [{ unitCode: 'tonne', factorNum: 53, forSale: false }],
+};
+/** Pack contents (litres) for paint reports. */
+const SAMPLE_CONTENTS: Record<string, number> = { 'SMP-BO-EMU-01': 1, 'SMP-BO-EMU-04': 4, 'SMP-BO-EMU-10': 10, 'SMP-BO-EMU-20': 20, 'SMP-BO-EXT-20': 20, 'SMP-BO-ENM-01': 1, 'SMP-BO-PRM-20': 20 };
 
 const CUSTOMERS = [
   { name: 'Srinivasa Reddy (Contractor)', phone: '9848012345', address: 'Musunuru, Kavali', creditLimitPaise: 20000000, openingBalancePaise: 4550000 },
@@ -135,6 +146,9 @@ export async function seedSample(sql: Sql) {
         reorderLevelMilli: reorder * 1000,
         maxDiscType: disc?.type ?? null,
         maxDiscValue: disc?.value ?? null,
+        units: SAMPLE_UNITS[sku],
+        contentsMilli: SAMPLE_CONTENTS[sku] ? SAMPLE_CONTENTS[sku]! * 1000 : null,
+        contentsUnit: SAMPLE_CONTENTS[sku] ? 'ltr' : null,
       },
       { isSample: true },
     ))!;
@@ -157,7 +171,7 @@ export async function seedSample(sql: Sql) {
       if (at.getTime() > now) continue;
       const lines = Array.from({ length: 1 + rnd(3) }, () => {
         const idx = rnd(productIds.length - 1); // never the padlock (out of stock)
-        const isBulk = PRODUCTS[idx]![4] === 'kg' || PRODUCTS[idx]![4] === 'bag';
+        const isBulk = PRODUCTS[idx]![4] === 'kg' || PRODUCTS[idx]![4] === 'bag' || PRODUCTS[idx]![4] === 'rod';
         return { productId: productIds[idx]!, qtyMilli: (1 + rnd(isBulk ? 10 : 3)) * 1000, discountBp: rnd(3) === 0 ? 100 : 0 };
       });
       const uniq = [...new Map(lines.map((l) => [l.productId, l])).values()];

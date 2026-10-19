@@ -1,4 +1,5 @@
-import { fyStartYear, istDate, mulDivRound } from '@kph/core';
+import { exclFromIncl, fyStartYear, istDate, mulDivRound, toBase } from '@kph/core';
+import { PRODUCT_FOR_BILL_COLUMNS, unitOf, type ProductForBill } from './billing.js';
 import type { Q, Sql } from '../db/connect.js';
 import { consumeOverride } from './auth.js';
 import { AppError, audit, can, requirePerm, type Ctx } from './common.js';
@@ -30,11 +31,26 @@ export interface PurchaseLineInput {
   productId?: number;
   newProduct?: NewProductInput;
   description?: string;
+  /** Quantity in unitCode (default: the product's base unit). */
   qtyMilli: number;
+  unitCode?: string;
+  /** Actual count received in the base unit, e.g. rods counted off a 5-tonne load. Overrides the conversion. */
+  baseQtyMilli?: number;
   /** Value of the line excluding GST, after any trade discount — as on the supplier's bill. */
-  taxablePaise: number;
+  taxablePaise?: number;
+  /** Or: the line value as typed in amountMode (incl = including GST). */
+  amountPaise?: number;
+  amountMode?: 'excl' | 'incl';
   gstRateBp: number;
   hsn?: string | null;
+}
+
+function lineTaxable(l: PurchaseLineInput): number {
+  if (l.amountMode === 'incl') {
+    if (l.amountPaise == null) return NaN;
+    return exclFromIncl(l.amountPaise, l.gstRateBp);
+  }
+  return l.taxablePaise ?? l.amountPaise ?? NaN;
 }
 
 export interface PurchaseInput {
@@ -73,15 +89,17 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
   const supply = input.supplyType ?? 'intra';
   const freight = input.freightPaise ?? 0;
   if (!Number.isSafeInteger(freight) || freight < 0) throw new AppError(400, 'BAD_FREIGHT', 'Freight must be zero or more');
-  for (const [i, l] of input.lines.entries()) {
+  const lines = input.lines.map((l) => ({ ...l, taxablePaise: lineTaxable(l) }));
+  for (const [i, l] of lines.entries()) {
     if (!l.productId && !l.newProduct) throw new AppError(400, 'NO_PRODUCT', `Line ${i + 1}: choose our product or create a new one`);
     if (!Number.isSafeInteger(l.qtyMilli) || l.qtyMilli <= 0) throw new AppError(400, 'BAD_QTY', `Line ${i + 1}: quantity must be more than zero`);
+    if (l.baseQtyMilli != null && (!Number.isSafeInteger(l.baseQtyMilli) || l.baseQtyMilli <= 0)) throw new AppError(400, 'BAD_QTY', `Line ${i + 1}: counted quantity must be more than zero`);
     if (!Number.isSafeInteger(l.taxablePaise) || l.taxablePaise < 0) throw new AppError(400, 'BAD_AMOUNT', `Line ${i + 1}: amount is not valid`);
     if (!Number.isSafeInteger(l.gstRateBp) || l.gstRateBp < 0 || l.gstRateBp > 10000) throw new AppError(400, 'BAD_GST', `Line ${i + 1}: GST rate is not valid`);
     if (l.newProduct && !can(ctx, 'products.manage')) throw new AppError(403, 'FORBIDDEN', `Line ${i + 1}: only admin can create new products. Ask admin, or pick an existing product.`);
   }
 
-  const computed = input.lines.map((l) => ({ l, ...calcPurchaseLine(l, supply) }));
+  const computed = lines.map((l) => ({ l, base: 0, billUnit: '', ...calcPurchaseLine(l, supply) }));
   const taxable = computed.reduce((s, c) => s + c.l.taxablePaise, 0);
   const cgst = computed.reduce((s, c) => s + c.cgst, 0);
   const sgst = computed.reduce((s, c) => s + c.sgst, 0);
@@ -121,7 +139,7 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
         const [p] = await tx<{ id: number }[]>`
           insert into products (sku, name, category_id, unit_code, hsn, gst_rate_bp, sale_price_paise, cost_price_paise)
           values (${sku}, ${np.name.trim()}, ${np.categoryId ?? null}, ${np.unitCode}, ${np.hsn?.trim() || c.l.hsn || null},
-                  ${c.l.gstRateBp}, ${np.salePricePaise ?? 0}, ${mulDivRound(c.l.taxablePaise, 1000, c.l.qtyMilli)})
+                  ${c.l.gstRateBp}, ${np.salePricePaise ?? 0}, ${mulDivRound(c.l.taxablePaise, 1000, c.l.baseQtyMilli ?? c.l.qtyMilli)})
           on conflict do nothing
           returning id`;
         if (!p) throw new AppError(409, 'DUPLICATE_SKU', `A product with SKU ${sku} already exists`);
@@ -132,10 +150,20 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
       }
 
       await lockProducts(tx, productIds);
-      const products = await tx<{ id: number; name: string; unit_code: string; hsn: string | null; cost_price_paise: number | null; active: boolean }[]>`
-        select id, name, unit_code, hsn, cost_price_paise, active from products where id in ${tx([...new Set(productIds)])}`;
+      const products = await tx.unsafe<ProductForBill[]>(
+        `select ${PRODUCT_FOR_BILL_COLUMNS} from products p left join categories c on c.id = p.category_id where p.id = any($1::int[])`,
+        [[...new Set(productIds)] as never],
+      );
       const byId = new Map(products.map((p) => [p.id, p]));
       for (const id of productIds) if (!byId.get(id)) throw new AppError(400, 'NO_PRODUCT', 'One of the products no longer exists');
+      // Bought in another unit (e.g. tonnes) → stock in the base unit (e.g. rods), or the count actually received.
+      for (const [i, c] of computed.entries()) {
+        const p = byId.get(c.l.productId!)!;
+        const unit = c.l.newProduct ? { code: p.unit_code, factor: { num: 1, den: 1 } } : unitOf(p, c.l.unitCode, 'purchase');
+        c.billUnit = unit.code;
+        c.base = c.l.baseQtyMilli ?? toBase(c.l.qtyMilli, unit.factor).baseMilli;
+        if (c.base <= 0) throw new AppError(400, 'BAD_QTY', `Line ${i + 1}: quantity is too small`);
+      }
 
       const settings = await getSettings(tx);
       const now = new Date();
@@ -177,9 +205,12 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
           product_id: p.id,
           description: c.l.description?.trim() || null,
           hsn: c.l.hsn?.trim() || p.hsn,
-          qty_milli: c.l.qtyMilli,
+          qty_milli: c.base,
           unit_code: p.unit_code,
-          unit_cost_paise: mulDivRound(c.l.taxablePaise, 1000, c.l.qtyMilli),
+          bill_unit_code: c.billUnit,
+          bill_qty_milli: c.l.qtyMilli,
+          amount_mode: c.l.amountMode ?? 'excl',
+          unit_cost_paise: mulDivRound(c.l.taxablePaise, 1000, c.base),
           taxable_paise: c.l.taxablePaise,
           gst_rate_bp: c.l.gstRateBp,
           cgst_paise: c.cgst,
@@ -290,6 +321,8 @@ export async function cancelPurchase(sql: Sql, ctx: Ctx, id: number, input: { re
       if (!input.overrideToken) throw new AppError(403, 'NEEDS_OVERRIDE', 'Cancelling a purchase needs the admin PIN', { permission: 'billing.cancel', purchaseId: id });
       approvedBy = (await consumeOverride(tx, ctx, input.overrideToken, 'billing.cancel', (c) => c.purchaseId === id)).approvedBy;
     }
+    const [dn] = await tx`select 1 from debit_notes where purchase_id = ${id} and status = 'posted' limit 1`;
+    if (dn) throw new AppError(409, 'HAS_RETURNS', `${p.number} already has goods returned to the supplier, so it can't be cancelled.`);
     const lines = await tx<{ product_id: number; qty_milli: number; unit_cost_paise: number }[]>`
       select product_id, qty_milli, unit_cost_paise from purchase_lines where purchase_id = ${id}`;
     await lockProducts(tx, lines.map((l) => l.product_id));

@@ -38,7 +38,11 @@ export async function registerPurchaseRoutes(app: FastifyInstance, { db, live }:
         .optional(),
       description: z.string().max(300).optional(),
       qtyMilli: z.number().int().positive(),
-      taxablePaise: z.number().int().min(0),
+      unitCode: z.string().optional(),
+      baseQtyMilli: z.number().int().positive().optional(),
+      taxablePaise: z.number().int().min(0).optional(),
+      amountPaise: z.number().int().min(0).optional(),
+      amountMode: z.enum(['excl', 'incl']).optional(),
       gstRateBp: z.number().int().min(0).max(10000),
       hsn: z.string().nullable().optional(),
     });

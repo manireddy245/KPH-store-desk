@@ -7,6 +7,7 @@ export const PERMISSIONS = {
   'billing.create': 'Create bills and take payments',
   'billing.discount_over_limit': 'Give discount above the product max discount',
   'billing.cancel': 'Cancel a bill',
+  'returns.create': 'Take back goods (sales return / credit note)',
   'payments.receive': 'Receive customer payments',
   'customers.manage': 'Add and edit customers',
   'suppliers.manage': 'Add and edit suppliers',
@@ -38,7 +39,7 @@ export const DEFAULT_ROLES: Record<RoleId, { name: string; permissions: Permissi
 };
 
 /** Things staff can't do themselves but an admin can approve on the spot with their PIN. */
-export const OVERRIDABLE: Permission[] = ['billing.discount_over_limit', 'billing.cancel'];
+export const OVERRIDABLE: Permission[] = ['billing.discount_over_limit', 'billing.cancel', 'returns.create'];
 
 export function hasPermission(granted: readonly string[], p: Permission): boolean {
   return granted.includes(p);

@@ -1,14 +1,25 @@
 import {
+  B2C_DETAILS_THRESHOLD_PAISE,
+  BASE,
+  STATES,
   calcBill,
+  convertRate,
   effectiveMaxDiscountBp,
   formatQty,
   fyStartYear,
   istDate,
+  stateFromGstin,
+  toBase,
+  unitPrice,
   type DiscountLimit,
+  type PriceMode,
+  type SupplyType,
+  type UnitFactor,
 } from '@kph/core';
 import type { Q, Sql, Tx } from '../db/connect.js';
 import { consumeOverride } from './auth.js';
 import { AppError, audit, can, requirePerm, type Ctx } from './common.js';
+import { assertMonthOpen } from './gst.js';
 import { ledgerBalance, nextDocNumber, postVoucher, reverseVoucher, systemLedgerIds } from './ledger.js';
 import { lockProducts } from './products.js';
 import { getSettings } from './settings.js';
@@ -17,9 +28,14 @@ export type PaymentMode = 'cash' | 'upi' | 'card' | 'credit';
 
 export interface InvoiceLineInput {
   productId: number;
+  /** Quantity in the chosen unit (thousandths). */
   qtyMilli: number;
-  /** Rate excluding GST. Defaults to the product's price; changing it needs products.edit_price. */
+  /** Unit sold in; default the product's base unit. */
+  unitCode?: string;
+  /** Rate per unit in rateMode. Defaults to the product's price; changing it needs products.edit_price. */
   ratePaise?: number;
+  /** Price typed excluding or including GST. Default: how the product's price is kept. */
+  rateMode?: PriceMode;
   discountBp: number;
   /** Token from an admin PIN approval, when the discount is above the limit. */
   overrideToken?: string;
@@ -28,15 +44,18 @@ export interface InvoiceLineInput {
 export interface InvoiceInput {
   clientRef?: string;
   customerId?: number | null;
-  /** Optional name/phone for a walk-in customer. */
+  /** Optional details for a walk-in customer (required for bills of ₹50,000 or more). */
   customerName?: string;
   customerPhone?: string;
+  customerAddress?: string;
+  /** GST place of supply (state code). Default: the business customer's state, else the shop's state. */
+  placeOfSupply?: string;
   paymentMode: PaymentMode;
   notes?: string;
   lines: InvoiceLineInput[];
 }
 
-interface ProductForBill {
+export interface ProductForBill {
   id: number;
   sku: string;
   name: string;
@@ -44,12 +63,14 @@ interface ProductForBill {
   unit_code: string;
   gst_rate_bp: number;
   sale_price_paise: number;
+  price_includes_tax: boolean;
   cost_price_paise: number | null;
   active: boolean;
   max_disc_type: 'pct' | 'amt' | null;
   max_disc_value: number | null;
   cat_disc_type: 'pct' | 'amt' | null;
   cat_disc_value: number | null;
+  units: { unit_code: string; factor_num: number; factor_den: number; for_sale: boolean; for_purchase?: boolean; price_paise: number | null }[];
 }
 
 interface CustomerSnap {
@@ -58,6 +79,7 @@ interface CustomerSnap {
   phone: string | null;
   gstin: string | null;
   address: string | null;
+  state_code: string;
   ledger_id: number;
 }
 
@@ -67,8 +89,30 @@ async function nextId(tx: Tx, sequence: 'sales_invoices_id_seq' | 'receipts_id_s
   return r!.id;
 }
 
-const limitOf = (type: 'pct' | 'amt' | null, value: number | null): DiscountLimit | null =>
-  type && value != null ? { type, value } : null;
+/** A ₹-per-unit limit is per BASE unit; scale it to the unit being sold. */
+const limitOf = (type: 'pct' | 'amt' | null, value: number | null, f: UnitFactor): DiscountLimit | null =>
+  type && value != null ? (type === 'amt' ? { type, value: unitPrice(value, f) } : { type, value }) : null;
+
+/** The unit a line is sold in, and its factor to the base unit. */
+export function unitOf(p: Pick<ProductForBill, 'name' | 'unit_code' | 'units'>, unitCode: string | undefined, purpose: 'sale' | 'purchase' = 'sale') {
+  if (!unitCode || unitCode === p.unit_code) return { code: p.unit_code, factor: BASE, ownPrice: null as number | null };
+  const u = p.units.find((x) => x.unit_code === unitCode && (purpose === 'sale' ? x.for_sale : x.for_purchase !== false));
+  if (!u) throw new AppError(400, 'BAD_UNIT', `"${p.name}" is not ${purpose === 'sale' ? 'sold' : 'bought'} in ${unitCode}`);
+  return { code: u.unit_code, factor: { num: u.factor_num, den: u.factor_den }, ownPrice: u.price_paise };
+}
+
+/** The product's list price for a unit, in the requested mode. */
+export function listRate(p: Pick<ProductForBill, 'sale_price_paise' | 'price_includes_tax' | 'gst_rate_bp'>, unit: { factor: UnitFactor; ownPrice: number | null }, mode: PriceMode) {
+  const pm: PriceMode = p.price_includes_tax ? 'incl' : 'excl';
+  const inProductMode = unit.ownPrice ?? unitPrice(p.sale_price_paise, unit.factor);
+  return convertRate(inProductMode, pm, mode, p.gst_rate_bp);
+}
+
+export const PRODUCT_FOR_BILL_COLUMNS = `
+  p.id, p.sku, p.name, p.hsn, p.unit_code, p.gst_rate_bp, p.sale_price_paise, p.price_includes_tax, p.cost_price_paise, p.active,
+  p.max_disc_type, p.max_disc_value, c.max_disc_type as cat_disc_type, c.max_disc_value as cat_disc_value,
+  coalesce((select json_agg(json_build_object('unit_code', u.unit_code, 'factor_num', u.factor_num, 'factor_den', u.factor_den,
+            'for_sale', u.for_sale, 'for_purchase', u.for_purchase, 'price_paise', u.price_paise)) from product_units u where u.product_id = p.id), '[]'::json) as units`;
 
 /**
  * Save a bill. Everything happens in one database transaction — stock check,
@@ -81,6 +125,7 @@ export async function createInvoice(sql: Sql, ctx: Ctx, input: InvoiceInput, opt
   if (input.paymentMode === 'credit' && !input.customerId) {
     throw new AppError(400, 'CREDIT_NEEDS_CUSTOMER', 'Choose a customer for a credit bill');
   }
+  if (input.placeOfSupply && !STATES[input.placeOfSupply]) throw new AppError(400, 'BAD_STATE', 'Place of supply is not a valid state');
 
   const findExisting = async (q: Q) => {
     if (!input.clientRef) return null;
@@ -112,17 +157,28 @@ async function saveInvoice(
     if (existing) return existing;
     const settings = await getSettings(tx);
     const productIds = [...new Set(input.lines.map((l) => l.productId))].sort((a, b) => a - b);
-    const products = await tx<ProductForBill[]>`
-      select p.id, p.sku, p.name, p.hsn, p.unit_code, p.gst_rate_bp, p.sale_price_paise, p.cost_price_paise, p.active,
-             p.max_disc_type, p.max_disc_value, c.max_disc_type as cat_disc_type, c.max_disc_value as cat_disc_value
-      from products p left join categories c on c.id = p.category_id
-      where p.id in ${tx(productIds)}`;
+    const products = await tx.unsafe<ProductForBill[]>(
+      `select ${PRODUCT_FOR_BILL_COLUMNS} from products p left join categories c on c.id = p.category_id where p.id = any($1::int[])`,
+      [productIds as never],
+    );
     const byId = new Map(products.map((p) => [p.id, p]));
     for (const id of productIds) {
       const p = byId.get(id);
       if (!p) throw new AppError(400, 'NO_PRODUCT', 'One of the items no longer exists. Remove it and add it again.');
       if (!p.active) throw new AppError(400, 'INACTIVE_PRODUCT', `"${p.name}" is no longer sold (inactive)`);
     }
+
+    // Each line: unit, base quantity, rate in its mode.
+    const resolved = input.lines.map((l) => {
+      const p = byId.get(l.productId)!;
+      const unit = unitOf(p, l.unitCode);
+      const { baseMilli } = toBase(l.qtyMilli, unit.factor);
+      if (baseMilli <= 0) throw new AppError(400, 'BAD_QTY', `Quantity of "${p.name}" is too small`);
+      const mode: PriceMode = l.rateMode ?? (p.price_includes_tax ? 'incl' : 'excl');
+      const list = listRate(p, unit, mode);
+      const ratePaise = l.ratePaise ?? list;
+      return { p, l, unit, baseMilli, mode, ratePaise, list };
+    });
 
     // Lock the products (in a fixed order, to avoid deadlocks between counters), then read stock.
     // Another counter selling the same item waits here until this bill commits or fails.
@@ -131,7 +187,7 @@ async function saveInvoice(
       select product_id, qty_milli from stock_balances where product_id in ${tx(productIds)}`;
     const available = new Map(balances.map((b) => [b.product_id, b.qty_milli]));
     const needed = new Map<number, number>();
-    for (const l of input.lines) needed.set(l.productId, (needed.get(l.productId) ?? 0) + l.qtyMilli);
+    for (const r of resolved) needed.set(r.p.id, (needed.get(r.p.id) ?? 0) + r.baseMilli);
     if (!settings.allowNegativeStock) {
       const short = [...needed]
         .filter(([id, qty]) => qty > (available.get(id) ?? 0))
@@ -147,17 +203,16 @@ async function saveInvoice(
 
     const prepared = [];
     const overLimit: { lineNo: number; productId: number; name: string; discountBp: number; maxBp: number; approvedBy: number | null; overrideId: number | null }[] = [];
-    for (const [i, l] of input.lines.entries()) {
-      const p = byId.get(l.productId)!;
-      const ratePaise = l.ratePaise ?? p.sale_price_paise;
-      if (ratePaise !== p.sale_price_paise && !can(ctx, 'products.edit_price')) {
+    for (const [i, r] of resolved.entries()) {
+      const { p, l, unit, ratePaise, list, mode } = r;
+      if (ratePaise !== list && !can(ctx, 'products.edit_price')) {
         throw new AppError(403, 'PRICE_CHANGE_NOT_ALLOWED', `Only admin can change the price of "${p.name}"`);
       }
       const maxBp = effectiveMaxDiscountBp({
-        productLimit: limitOf(p.max_disc_type, p.max_disc_value),
-        categoryLimit: limitOf(p.cat_disc_type, p.cat_disc_value),
+        productLimit: limitOf(p.max_disc_type, p.max_disc_value, unit.factor),
+        categoryLimit: limitOf(p.cat_disc_type, p.cat_disc_value, unit.factor),
         staffCapBp: can(ctx, 'billing.discount_over_limit') ? null : staffCapBp,
-        ratePaise,
+        ratePaise: convertRate(ratePaise, mode, 'excl', p.gst_rate_bp),
       });
       let overrideId: number | null = null;
       if (l.discountBp > maxBp) {
@@ -178,20 +233,35 @@ async function saveInvoice(
         }
         overLimit.push({ lineNo: i + 1, productId: p.id, name: p.name, discountBp: l.discountBp, maxBp, approvedBy, overrideId });
       }
-      prepared.push({ p, l, ratePaise, maxBp, overrideId });
+      prepared.push({ ...r, maxBp, overrideId });
     }
-
-    const totals = calcBill(
-      prepared.map(({ p, l, ratePaise }) => ({ qtyMilli: l.qtyMilli, ratePaise, discountBp: l.discountBp, gstRateBp: p.gst_rate_bp })),
-      'intra',
-    );
 
     let customer: CustomerSnap | null = null;
     if (input.customerId) {
       const [c] = await tx<CustomerSnap[]>`
-        select id, name, phone, gstin, address, ledger_id from customers where id = ${input.customerId} and active`;
+        select id, name, phone, gstin, address, state_code, ledger_id from customers where id = ${input.customerId} and active`;
       if (!c) throw new AppError(400, 'NO_CUSTOMER', 'Customer not found or inactive');
       customer = c;
+    }
+
+    // GST place of supply: intra-state (CGST + SGST) or inter-state (IGST).
+    const shopState = settings.stateCode;
+    const pos = input.placeOfSupply ?? (customer?.gstin ? (stateFromGstin(customer.gstin) ?? shopState) : shopState);
+    const supply: SupplyType = pos === shopState ? 'intra' : 'inter';
+
+    const totals = calcBill(
+      prepared.map(({ p, l, ratePaise, mode }) => ({ qtyMilli: l.qtyMilli, ratePaise, discountBp: l.discountBp, gstRateBp: p.gst_rate_bp, mode })),
+      supply,
+    );
+
+    // GST invoice rules.
+    const recipientName = customer?.name ?? (input.customerName?.trim() || null);
+    const recipientAddress = customer?.address ?? (input.customerAddress?.trim() || null);
+    if (customer?.gstin && !customer.address) {
+      throw new AppError(400, 'B2B_NEEDS_ADDRESS', `${customer.name} is a registered business (GSTIN ${customer.gstin}). Add their address in Customers — it must be on the GST bill.`);
+    }
+    if (!customer?.gstin && totals.totalPaise >= B2C_DETAILS_THRESHOLD_PAISE && (!recipientName || !recipientAddress)) {
+      throw new AppError(400, 'B2C_NEEDS_DETAILS', 'For a bill of ₹50,000 or more, GST rules need the customer’s name and address. Choose the customer or type the name and address.');
     }
 
     const at = opts.at ?? new Date();
@@ -220,17 +290,17 @@ async function saveInvoice(
 
     await tx`
       insert into sales_invoices (id, number, fy_start, seq, invoice_date, at, customer_id, customer_name, customer_phone,
-        customer_gstin, customer_address, payment_mode, gross_paise, discount_paise, taxable_paise, cgst_paise, sgst_paise,
-        igst_paise, round_off_paise, total_paise, voucher_id, notes, user_id, device_id, client_ref)
+        customer_gstin, customer_address, supply_type, place_of_supply, payment_mode, gross_paise, discount_paise, taxable_paise,
+        cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, voucher_id, notes, user_id, device_id, client_ref)
       values (${id}, ${number}, ${fy}, ${seq}, ${date}, ${at}, ${customer?.id ?? null},
-        ${customer?.name ?? (input.customerName?.trim() || null)}, ${customer?.phone ?? (input.customerPhone?.trim() || null)},
-        ${customer?.gstin ?? null}, ${customer?.address ?? null}, ${input.paymentMode}, ${totals.grossPaise},
+        ${recipientName}, ${customer?.phone ?? (input.customerPhone?.trim() || null)},
+        ${customer?.gstin ?? null}, ${recipientAddress}, ${supply}, ${pos}, ${input.paymentMode}, ${totals.grossPaise},
         ${totals.discountPaise}, ${totals.taxablePaise}, ${totals.cgstPaise}, ${totals.sgstPaise}, ${totals.igstPaise},
         ${totals.roundOffPaise}, ${totals.totalPaise}, ${voucherId}, ${input.notes?.trim() || null}, ${ctx.userId},
         ${ctx.deviceId}, ${input.clientRef ?? null})`;
 
     await tx`insert into sales_invoice_lines ${tx(
-      prepared.map(({ p, l, ratePaise, maxBp, overrideId }, i) => {
+      prepared.map(({ p, l, unit, baseMilli, mode, ratePaise, maxBp, overrideId }, i) => {
         const r = totals.lines[i]!;
         return {
           invoice_id: id,
@@ -239,9 +309,13 @@ async function saveInvoice(
           product_name: p.name,
           sku: p.sku,
           hsn: p.hsn,
-          unit_code: p.unit_code,
+          unit_code: unit.code,
           qty_milli: l.qtyMilli,
+          factor_num: unit.factor.num,
+          factor_den: unit.factor.den,
+          base_qty_milli: baseMilli,
           rate_paise: ratePaise,
+          rate_mode: mode,
           discount_bp: l.discountBp,
           max_discount_bp: maxBp,
           gross_paise: r.grossPaise,
@@ -252,6 +326,7 @@ async function saveInvoice(
           sgst_paise: r.sgstPaise,
           igst_paise: r.igstPaise,
           total_paise: r.totalPaise,
+          amount_paise: r.amountPaise,
           cost_price_paise: p.cost_price_paise,
           override_id: overrideId,
         };
@@ -259,9 +334,9 @@ async function saveInvoice(
     )}`;
 
     await tx`insert into stock_movements ${tx(
-      prepared.map(({ p, l }) => ({
+      prepared.map(({ p, baseMilli }) => ({
         product_id: p.id,
-        qty_milli: -l.qtyMilli,
+        qty_milli: -baseMilli,
         kind: 'sale',
         ref_type: 'sales_invoice',
         ref_id: id,
@@ -275,7 +350,7 @@ async function saveInvoice(
     await audit(tx, ctx, 'invoice.created', {
       entity: 'sales_invoice',
       entityId: id,
-      details: { number, totalPaise: totals.totalPaise, paymentMode: input.paymentMode, items: prepared.length, customerId: customer?.id ?? null },
+      details: { number, totalPaise: totals.totalPaise, paymentMode: input.paymentMode, items: prepared.length, customerId: customer?.id ?? null, supply },
     });
     for (const o of overLimit) {
       await audit(tx, ctx, 'discount.over_limit', {
@@ -299,9 +374,13 @@ export async function getInvoice(q: Q, id: number, opts: { withCost?: boolean } 
     left join users ap on ap.id = si.cancel_approved_by
     where si.id = ${id}`;
   if (!inv) throw new AppError(404, 'NOT_FOUND', 'Bill not found');
-  const lines = await q`select * from sales_invoice_lines where invoice_id = ${id} order by line_no`;
+  const lines = await q`
+    select l.*, coalesce((select sum(cl.qty_milli) from credit_note_lines cl join credit_notes cn on cn.id = cl.credit_note_id
+                          where cl.invoice_line_id = l.id and cn.status = 'posted'), 0) as returned_qty_milli
+    from sales_invoice_lines l where l.invoice_id = ${id} order by l.line_no`;
   if (!opts.withCost) for (const l of lines) delete l.cost_price_paise;
-  return { ...inv, lines };
+  const creditNotes = await q`select id, number, note_date, total_paise, status from credit_notes where invoice_id = ${id} order by id`;
+  return { ...inv, lines, credit_notes: creditNotes };
 }
 
 export async function listInvoices(
@@ -311,8 +390,9 @@ export async function listInvoices(
   const search = f.search?.trim() ? `%${f.search.trim().toLowerCase()}%` : null;
   return q`
     select si.id, si.number, si.invoice_date, si.at, si.customer_id, si.customer_name, si.customer_phone, si.payment_mode,
-           si.total_paise, si.discount_paise, si.status, u.name as user_name, d.name as device_name,
-           (select count(*)::int from sales_invoice_lines l where l.invoice_id = si.id) as item_count
+           si.total_paise, si.discount_paise, si.status, si.supply_type, si.customer_gstin, u.name as user_name, d.name as device_name,
+           (select count(*)::int from sales_invoice_lines l where l.invoice_id = si.id) as item_count,
+           (select count(*)::int from credit_notes cn where cn.invoice_id = si.id and cn.status = 'posted') as return_count
     from sales_invoices si join users u on u.id = si.user_id left join devices d on d.id = si.device_id
     where (${f.from ?? null}::date is null or si.invoice_date >= ${f.from ?? null}::date)
       and (${f.to ?? null}::date is null or si.invoice_date <= ${f.to ?? null}::date)
@@ -330,10 +410,13 @@ export async function cancelInvoice(sql: Sql, ctx: Ctx, id: number, input: { rea
   const reason = input.reason?.trim() ?? '';
   if (reason.length < 3) throw new AppError(400, 'REASON_REQUIRED', 'Please give a reason for cancelling');
   return sql.begin(async (tx) => {
-    const [inv] = await tx<{ id: number; number: string; status: string; voucher_id: number | null; total_paise: number }[]>`
-      select id, number, status, voucher_id, total_paise from sales_invoices where id = ${id} for update`;
+    const [inv] = await tx<{ id: number; number: string; status: string; voucher_id: number | null; total_paise: number; invoice_date: string }[]>`
+      select id, number, status, voucher_id, total_paise, invoice_date from sales_invoices where id = ${id} for update`;
     if (!inv) throw new AppError(404, 'NOT_FOUND', 'Bill not found');
     if (inv.status === 'cancelled') throw new AppError(409, 'ALREADY_CANCELLED', `Bill ${inv.number} is already cancelled`);
+    await assertMonthOpen(tx, inv.invoice_date, `Bill ${inv.number} is in a month whose GSTR-1 is filed, so it can't be cancelled. Use “Return items” to issue a credit note instead.`);
+    const [ret] = await tx`select 1 from credit_notes where invoice_id = ${id} and status = 'posted' limit 1`;
+    if (ret) throw new AppError(409, 'HAS_RETURNS', `Bill ${inv.number} already has a sales return. Use “Return items” for the rest instead of cancelling.`);
 
     let approvedBy: number | null = null;
     if (!can(ctx, 'billing.cancel')) {
@@ -347,12 +430,12 @@ export async function cancelInvoice(sql: Sql, ctx: Ctx, id: number, input: { rea
     const cancelVoucherId = inv.voucher_id
       ? await reverseVoucher(tx, ctx, inv.voucher_id, date, `Cancelled bill ${inv.number}: ${reason}`)
       : null;
-    const lines = await tx<{ product_id: number; qty_milli: number; cost_price_paise: number | null }[]>`
-      select product_id, qty_milli, cost_price_paise from sales_invoice_lines where invoice_id = ${id}`;
+    const lines = await tx<{ product_id: number; base_qty_milli: number; cost_price_paise: number | null }[]>`
+      select product_id, base_qty_milli, cost_price_paise from sales_invoice_lines where invoice_id = ${id}`;
     await tx`insert into stock_movements ${tx(
       lines.map((l) => ({
         product_id: l.product_id,
-        qty_milli: l.qty_milli,
+        qty_milli: l.base_qty_milli,
         kind: 'sale_cancel',
         ref_type: 'sales_invoice',
         ref_id: id,

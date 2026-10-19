@@ -53,6 +53,11 @@ export async function registerAdminRoutes(app: FastifyInstance, { db, live }: Sh
         geminiApiKey: z.string(),
         geminiModel: z.string().regex(/^[a-z0-9][a-z0-9.-]{2,60}$/, 'Model name looks wrong'),
         purchasePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/),
+        creditNotePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/),
+        debitNotePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/),
+        salesPriceMode: z.enum(['excl', 'incl']),
+        purchasePriceMode: z.enum(['excl', 'incl']),
+        invoiceLabels: z.enum(['en', 'te-en']),
       })
       .partial()
       .parse(req.body);

@@ -1,3 +1,4 @@
+import { isValidGstin, stateFromGstin } from '@kph/core';
 import type { Q, Sql } from '../db/connect.js';
 import { AppError, audit, requirePerm, type Ctx } from './common.js';
 import { createPartyLedger } from './ledger.js';
@@ -22,6 +23,7 @@ function validateParty(input: { name?: string; phone?: string | null; gstin?: st
   if (input.name !== undefined && input.name.trim().length < 2) throw new AppError(400, 'BAD_NAME', 'Name is too short');
   if (input.phone && !/^[+\d][\d\s-]{6,15}$/.test(input.phone.trim())) throw new AppError(400, 'BAD_PHONE', 'Phone number does not look right');
   if (input.gstin && !GSTIN_RE.test(input.gstin.trim().toUpperCase())) throw new AppError(400, 'BAD_GSTIN', 'GSTIN should be 15 characters, e.g. 37ABCDE1234F1Z5');
+  if (input.gstin && !isValidGstin(input.gstin)) throw new AppError(400, 'BAD_GSTIN', 'This GSTIN is not valid (its last character does not check out). Please check it on the bill or the GST portal.');
 }
 
 export async function listCustomers(q: Q, f: { search?: string; withBalanceOnly?: boolean; includeInactive?: boolean; id?: number } = {}) {
@@ -62,7 +64,7 @@ export async function createCustomer(sql: Sql, ctx: Ctx, input: CustomerInput & 
     const [c] = await tx<{ id: number }[]>`
       insert into customers (name, phone, gstin, address, state_code, credit_limit_paise, notes, is_sample)
       values (${input.name.trim()}, ${clean(input.phone)}, ${clean(input.gstin)?.toUpperCase() ?? null}, ${clean(input.address)},
-              ${input.stateCode ?? '37'}, ${input.creditLimitPaise ?? null}, ${clean(input.notes)}, ${opts.isSample ?? false})
+              ${input.stateCode ?? stateFromGstin(clean(input.gstin)) ?? '37'}, ${input.creditLimitPaise ?? null}, ${clean(input.notes)}, ${opts.isSample ?? false})
       returning id`;
     const id = c!.id;
     const ledgerId = await createPartyLedger(tx, 'customer', id, input.name.trim(), input.openingBalancePaise ?? 0);
@@ -83,6 +85,7 @@ export async function updateCustomer(sql: Sql, ctx: Ctx, id: number, input: Cust
   if (input.gstin !== undefined) set.gstin = clean(input.gstin)?.toUpperCase() ?? null;
   if (input.address !== undefined) set.address = clean(input.address);
   if (input.stateCode !== undefined) set.state_code = input.stateCode;
+  else if (set.gstin) set.state_code = stateFromGstin(set.gstin as string);
   if (input.creditLimitPaise !== undefined) set.credit_limit_paise = input.creditLimitPaise;
   if (input.notes !== undefined) set.notes = clean(input.notes);
   if (input.active !== undefined) set.active = input.active;

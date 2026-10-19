@@ -27,6 +27,8 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
         customerId: z.number().int().positive().nullable().optional(),
         customerName: z.string().max(100).optional(),
         customerPhone: z.string().max(20).optional(),
+        customerAddress: z.string().max(300).optional(),
+        placeOfSupply: z.string().regex(/^d{2}$/).optional(),
         paymentMode: z.enum(['cash', 'upi', 'card', 'credit']),
         notes: z.string().max(500).optional(),
         lines: z
@@ -35,6 +37,8 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
               productId: z.number().int().positive(),
               qtyMilli: z.number().int().positive(),
               ratePaise: z.number().int().min(0).optional(),
+              rateMode: z.enum(['excl', 'incl']).optional(),
+              unitCode: z.string().optional(),
               discountBp: z.number().int().min(0).max(10000),
               overrideToken: z.string().optional(),
             }),
@@ -79,6 +83,7 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
       stateCode: s.stateCode,
       stateName: s.stateName,
       terms: s.invoiceTerms,
+      labels: s.invoiceLabels,
     };
     return { ...inv, store };
   });

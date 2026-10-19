@@ -21,6 +21,14 @@ export interface StoreSettings {
   /** Gemini model used by the invoice scanner; change it here when Google retires a model. */
   geminiModel: string;
   purchasePrefix: string;
+  /** Default for new bill lines: price typed excluding or including GST. */
+  salesPriceMode: 'excl' | 'incl';
+  /** Default for purchase lines. */
+  purchasePriceMode: 'excl' | 'incl';
+  /** Invoice labels: English, or Telugu + English. */
+  invoiceLabels: 'en' | 'te-en';
+  creditNotePrefix: string;
+  debitNotePrefix: string;
 }
 
 export const DEFAULT_SETTINGS: StoreSettings = {
@@ -41,6 +49,11 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   geminiApiKey: '',
   geminiModel: 'gemini-3.8-flash',
   purchasePrefix: 'PUR',
+  salesPriceMode: 'excl',
+  purchasePriceMode: 'excl',
+  invoiceLabels: 'te-en',
+  creditNotePrefix: 'CN',
+  debitNotePrefix: 'DN',
 };
 
 /** Never included in backups or sent to non-admin screens. */

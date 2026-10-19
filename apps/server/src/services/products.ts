@@ -19,9 +19,27 @@ export interface ProductInput {
   active?: boolean;
   /** Only when creating: opening stock, posted as an "opening" stock movement. */
   openingQtyMilli?: number;
+  /** true = sale price is typed including GST. */
+  priceIncludesTax?: boolean;
+  /** Pack contents for reports, e.g. 20 litres in a 20L bucket. */
+  contentsMilli?: number | null;
+  contentsUnit?: string | null;
+  /** Other units this product is sold/bought in (replaces the whole list when given). */
+  units?: UnitInput[];
 }
 
-const PRICE_FIELDS: (keyof ProductInput)[] = ['salePricePaise', 'maxDiscType', 'maxDiscValue'];
+export interface UnitInput {
+  unitCode: string;
+  /** 1 of this unit = factorNum / factorDen base units, e.g. 1 tonne = 94 rods. */
+  factorNum: number;
+  factorDen?: number;
+  forSale?: boolean;
+  forPurchase?: boolean;
+  /** Own selling price for one of this unit (same incl/excl mode as the product). */
+  pricePaise?: number | null;
+}
+
+const PRICE_FIELDS: (keyof ProductInput)[] = ['salePricePaise', 'maxDiscType', 'maxDiscValue', 'priceIncludesTax'];
 const COST_FIELDS: (keyof ProductInput)[] = ['costPricePaise'];
 
 const COLUMN: Record<string, string> = {
@@ -39,6 +57,9 @@ const COLUMN: Record<string, string> = {
   maxDiscType: 'max_disc_type',
   maxDiscValue: 'max_disc_value',
   active: 'active',
+  priceIncludesTax: 'price_includes_tax',
+  contentsMilli: 'contents_milli',
+  contentsUnit: 'contents_unit',
 };
 
 function checkFieldPermissions(ctx: Ctx, input: ProductInput, creating: boolean) {
@@ -46,6 +67,35 @@ function checkFieldPermissions(ctx: Ctx, input: ProductInput, creating: boolean)
   const touched = (fields: (keyof ProductInput)[]) => fields.some((f) => input[f] !== undefined && (!creating || input[f] !== null));
   if (touched(PRICE_FIELDS) && !can(ctx, 'products.edit_price')) throw new AppError(403, 'FORBIDDEN', 'Only admin can change prices or discount limits');
   if (touched(COST_FIELDS) && !can(ctx, 'products.view_cost')) throw new AppError(403, 'FORBIDDEN', 'Only admin can set cost price');
+  if (input.units?.some((u) => u.pricePaise != null) && !can(ctx, 'products.edit_price')) throw new AppError(403, 'FORBIDDEN', 'Only admin can set unit prices');
+}
+
+/** Replace a product's extra units. */
+async function saveUnits(tx: Tx, productId: number, baseUnit: string, units: UnitInput[]) {
+  const seen = new Set<string>();
+  for (const u of units) {
+    if (u.unitCode === baseUnit) throw new AppError(400, 'BAD_UNIT', `${u.unitCode} is already the base unit`);
+    if (seen.has(u.unitCode)) throw new AppError(400, 'BAD_UNIT', `${u.unitCode} is listed twice`);
+    seen.add(u.unitCode);
+    const den = u.factorDen ?? 1;
+    if (!Number.isSafeInteger(u.factorNum) || u.factorNum <= 0 || !Number.isSafeInteger(den) || den <= 0)
+      throw new AppError(400, 'BAD_UNIT', `How many ${baseUnit} are in one ${u.unitCode}? Enter a whole number`);
+    if (u.pricePaise != null && (!Number.isSafeInteger(u.pricePaise) || u.pricePaise < 0)) throw new AppError(400, 'BAD_UNIT', 'Unit price is not valid');
+  }
+  await tx`delete from product_units where product_id = ${productId}`;
+  if (units.length) {
+    await tx`insert into product_units ${tx(
+      units.map((u) => ({
+        product_id: productId,
+        unit_code: u.unitCode,
+        factor_num: u.factorNum,
+        factor_den: u.factorDen ?? 1,
+        for_sale: u.forSale ?? true,
+        for_purchase: u.forPurchase ?? true,
+        price_paise: u.pricePaise ?? null,
+      })),
+    )}`;
+  }
 }
 
 function validate(input: ProductInput) {
@@ -79,7 +129,10 @@ export async function listProducts(
       select p.id, p.sku, p.name, p.category_id, c.name as category_name, p.brand_id, b.name as brand_name, p.unit_code,
              p.hsn, p.gst_rate_bp, p.sale_price_paise, p.price_includes_tax, p.cost_price_paise, p.mrp_paise,
              p.reorder_level_milli, p.max_disc_type, p.max_disc_value, c.max_disc_type as cat_disc_type,
-             c.max_disc_value as cat_disc_value, p.active, p.is_sample, p.updated_at,
+             c.max_disc_value as cat_disc_value, p.active, p.is_sample, p.updated_at, p.contents_milli, p.contents_unit,
+             coalesce((select json_agg(json_build_object('unit_code', u.unit_code, 'factor_num', u.factor_num, 'factor_den', u.factor_den,
+                        'for_sale', u.for_sale, 'for_purchase', u.for_purchase, 'price_paise', u.price_paise) order by u.factor_num::numeric / u.factor_den)
+                       from product_units u where u.product_id = p.id), '[]'::json) as units,
              coalesce(sb.qty_milli, 0) as qty_milli,
              case when coalesce(sb.qty_milli, 0) <= 0 then 'out'
                   when coalesce(sb.qty_milli, 0) <= coalesce(p.reorder_level_milli, ${s.lowStockThresholdMilli}) then 'low'
@@ -114,13 +167,16 @@ export async function createProduct(sql: Sql, ctx: Ctx, input: ProductInput & { 
     return await sql.begin(async (tx) => {
       const [p] = await tx<{ id: number }[]>`
         insert into products (sku, name, category_id, brand_id, unit_code, hsn, gst_rate_bp, sale_price_paise, cost_price_paise,
-                              mrp_paise, reorder_level_milli, max_disc_type, max_disc_value, is_sample)
+                              mrp_paise, reorder_level_milli, max_disc_type, max_disc_value, is_sample, price_includes_tax,
+                              contents_milli, contents_unit)
         values (${input.sku.trim()}, ${input.name.trim()}, ${input.categoryId ?? null}, ${input.brandId ?? null}, ${input.unitCode},
                 ${input.hsn?.trim() || null}, ${input.gstRateBp ?? 1800}, ${input.salePricePaise ?? 0}, ${input.costPricePaise ?? null},
                 ${input.mrpPaise ?? null}, ${input.reorderLevelMilli ?? null}, ${input.maxDiscType ?? null},
-                ${input.maxDiscValue ?? null}, ${opts.isSample ?? false})
+                ${input.maxDiscValue ?? null}, ${opts.isSample ?? false}, ${input.priceIncludesTax ?? false},
+                ${input.contentsMilli ?? null}, ${input.contentsUnit ?? null})
         returning id`;
       const id = p!.id;
+      if (input.units?.length) await saveUnits(tx, id, input.unitCode, input.units);
       if (input.openingQtyMilli && input.openingQtyMilli > 0) {
         await tx`insert into stock_movements (product_id, qty_milli, kind, unit_cost_paise, reason, user_id, device_id)
                  values (${id}, ${input.openingQtyMilli}, 'opening', ${input.costPricePaise ?? null}, 'Opening stock', ${ctx.userId}, ${ctx.deviceId})`;
@@ -141,6 +197,10 @@ export async function updateProduct(sql: Sql, ctx: Ctx, id: number, input: Produ
     return await sql.begin(async (tx) => {
       const [old] = await tx<Record<string, unknown>[]>`select * from products where id = ${id} for update`;
       if (!old) throw new AppError(404, 'NOT_FOUND', 'Product not found');
+      if (input.unitCode !== undefined && input.unitCode !== old.unit_code) {
+        const [moved] = await tx`select 1 from stock_movements where product_id = ${id} limit 1`;
+        if (moved) throw new AppError(400, 'UNIT_LOCKED', `Stock of this product is kept in ${old.unit_code}. Its base unit can't change once it has stock — add other units instead.`);
+      }
       const changes: Record<string, { from: unknown; to: unknown }> = {};
       const set: Record<string, unknown> = {};
       for (const [k, col] of Object.entries(COLUMN)) {
@@ -151,8 +211,12 @@ export async function updateProduct(sql: Sql, ctx: Ctx, id: number, input: Produ
         set[col] = nv;
         changes[k] = { from: old[col], to: nv };
       }
-      if (!Object.keys(set).length) return { id, changed: false };
-      await tx`update products set ${tx(set)}, updated_at = now() where id = ${id}`;
+      if (input.units !== undefined) {
+        await saveUnits(tx, id, (set.unit_code as string) ?? (old.unit_code as string), input.units);
+        changes.units = { from: 'previous', to: input.units };
+      }
+      if (!Object.keys(changes).length) return { id, changed: false };
+      if (Object.keys(set).length) await tx`update products set ${tx(set)}, updated_at = now() where id = ${id}`;
       for (const f of ['sale_price_paise', 'cost_price_paise', 'mrp_paise'] as const) {
         if (f in set) {
           await tx`insert into price_history (product_id, field, old_value, new_value, user_id, device_id)

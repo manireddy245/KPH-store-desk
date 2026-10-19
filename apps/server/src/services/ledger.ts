@@ -9,7 +9,7 @@ import type { Ctx } from './common.js';
  */
 
 export type SystemLedger = 'cash' | 'upi' | 'card' | 'bank' | 'cheque' | 'sales' | 'output_cgst' | 'output_sgst' | 'output_igst' | 'round_off'
-  | 'purchases' | 'input_cgst' | 'input_sgst' | 'input_igst' | 'freight_in';
+  | 'purchases' | 'input_cgst' | 'input_sgst' | 'input_igst' | 'freight_in' | 'sales_returns' | 'purchase_returns';
 
 export async function systemLedgerIds(q: Q): Promise<Record<SystemLedger, number>> {
   const rows = await q<{ id: number; system_code: SystemLedger }[]>`select id, system_code from ledgers where system_code is not null`;
