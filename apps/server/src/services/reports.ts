@@ -315,19 +315,22 @@ export async function gstr3b(q: Q, ctx: Ctx, r: Range) {
   const [itcRev] = await q<{ igst: number; cgst: number; sgst: number }[]>`
     select coalesce(sum(igst_paise), 0) as igst, coalesce(sum(cgst_paise), 0) as cgst, coalesce(sum(sgst_paise), 0) as sgst
     from debit_notes where status = 'posted' and note_date between ${r.from} and ${r.to}`;
+  const [itcExp] = await q<{ igst: number; cgst: number; sgst: number; bills: number }[]>`
+    select coalesce(sum(igst_paise), 0) as igst, coalesce(sum(cgst_paise), 0) as cgst, coalesce(sum(sgst_paise), 0) as sgst, count(*)::int as bills
+    from money_entries where kind = 'expense' and status = 'posted' and coalesce(gst_rate_bp, 0) > 0 and entry_date between ${r.from} and ${r.to}`;
   const net = (a: { igst: number; cgst: number; sgst: number }, b: { igst: number; cgst: number; sgst: number }) => ({ igst: a.igst - b.igst, cgst: a.cgst - b.cgst, sgst: a.sgst - b.sgst });
   const outward = { taxable: sales!.taxable - returns!.taxable, ...net(sales!, returns!) };
-  const itcNet = net(itc!, itcRev!);
+  const itcNet = net({ igst: itc!.igst + itcExp!.igst, cgst: itc!.cgst + itcExp!.cgst, sgst: itc!.sgst + itcExp!.sgst }, itcRev!);
   return {
     ...r,
     outward,
     outwardDetail: { sales: sales!, returns: returns! },
     interStateUnregistered: interUnreg.filter((x) => x.taxable !== 0).map((x) => ({ pos: pos(x.pos), taxable: x.taxable, igst: x.igst })),
-    itc: { purchases: itc!, purchaseReturns: itcRev!, net: itcNet },
+    itc: { purchases: itc!, expenses: itcExp!, purchaseReturns: itcRev!, net: itcNet },
     /** Tax still to pay in cash if all ITC is usable — a rough guide only; the portal applies the set-off order. */
     roughPayable: Math.max(0, outward.igst + outward.cgst + outward.sgst - (itcNet.igst + itcNet.cgst + itcNet.sgst)),
     notes: [
-      'Input tax credit is from purchase bills entered here (by supplier bill date). Claim only what appears in your GSTR-2B — the CA should match them.',
+      'Input tax credit is from purchase bills (by supplier bill date) and expense bills with GST entered here. Claim only what appears in your GSTR-2B — the CA should match them.',
       'Purchases from unregistered dealers, exempt / nil-rated supplies and reverse-charge items are not tracked yet.',
     ],
   };

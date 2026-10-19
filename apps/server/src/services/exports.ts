@@ -259,6 +259,7 @@ export function gstr3bXlsx(d: Awaited<ReturnType<typeof gstr3b>>, shop: string) 
         ['3.2 Inter-state supplies to unregistered persons'],
         ...d.interStateUnregistered.map((x) => [`    ${x.pos}`, x.taxable, x.igst, null, null, null]),
         row('4(A)(5) All other ITC (purchase bills)', d.itc.purchases),
+        row('    expense bills with GST', d.itc.expenses),
         row('    less purchase returns (debit notes)', { igst: -d.itc.purchaseReturns.igst, cgst: -d.itc.purchaseReturns.cgst, sgst: -d.itc.purchaseReturns.sgst }),
         row('Net ITC available', d.itc.net),
         ...d.notes.map((n) => [n]),

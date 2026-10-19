@@ -24,6 +24,14 @@ export interface StoreSettings {
   /** Gemini model used by the invoice scanner; change it here when Google retires a model. */
   geminiModel: string;
   purchasePrefix: string;
+  paymentPrefix: string;
+  expensePrefix: string;
+  contraPrefix: string;
+  journalPrefix: string;
+  /** Go-live date: opening balances are as at the start of this day. */
+  openingDate: string;
+  /** Set once the opening balances are confirmed; they can't be changed after that. */
+  openingLocked: boolean;
   /** Default for new bill lines: price typed excluding or including GST. */
   salesPriceMode: 'excl' | 'incl';
   /** Default for purchase lines. */
@@ -54,6 +62,12 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   geminiApiKey: '',
   geminiModel: 'gemini-3.8-flash',
   purchasePrefix: 'PUR',
+  paymentPrefix: 'PAY',
+  expensePrefix: 'EXP',
+  contraPrefix: 'CTR',
+  journalPrefix: 'JRN',
+  openingDate: '',
+  openingLocked: false,
   salesPriceMode: 'excl',
   purchasePriceMode: 'excl',
   invoiceLabels: 'te-en',

@@ -16,7 +16,7 @@ export const BACKUP_TABLES = [
   'audit_log', 'stock_movements', 'stock_balances', 'sales_invoices', 'sales_invoice_lines', 'receipts', 'bill_drafts',
   'purchase_scans', 'purchase_invoices', 'purchase_lines', 'product_aliases',
   'product_units', 'credit_notes', 'credit_note_lines', 'debit_notes', 'debit_note_lines', 'gst_periods',
-  'assistant_messages',
+  'assistant_messages', 'invoice_transport', 'money_entries', 'payment_allocations', 'cash_closings',
 ] as const;
 
 const FORMAT = 'kph-storedesk-backup';

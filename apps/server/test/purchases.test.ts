@@ -54,7 +54,7 @@ describe('entering a purchase', () => {
     const [m] = await h.app`select kind, qty_milli, unit_cost_paise from stock_movements where product_id = ${p} and kind = 'purchase'`;
     expect(m).toMatchObject({ qty_milli: 200000, unit_cost_paise: 29200 });
     const [pr] = await h.app`select cost_price_paise from products where id = ${p}`;
-    expect(pr!.cost_price_paise).toBe(29200);
+    expect(pr!.cost_price_paise).toBe(29143); // weighted average: (10 × ₹280 + 200 × ₹292) ÷ 210
     const [v] = await h.app`select sum(dr_paise) dr, sum(cr_paise) cr from voucher_lines where voucher_id = ${d.voucher_id}`;
     expect(v!.dr).toBe(v!.cr);
     const [alias] = await h.app`select product_id from product_aliases where supplier_id = ${supplierId} and alias = 'ultratech ppc 50kg'`;

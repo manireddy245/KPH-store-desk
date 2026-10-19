@@ -220,6 +220,10 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
         };
       });
       await tx`insert into purchase_lines ${tx(rows)}`;
+      // Stock before this purchase, for the weighted-average cost.
+      const before = new Map(
+        (await tx<{ product_id: number; q: number }[]>`select product_id, qty_milli as q from stock_balances where product_id = any(${rows.map((r) => r.product_id)})`).map((b) => [b.product_id, b.q]),
+      );
       await tx`insert into stock_movements ${tx(
         rows.map((r) => ({
           product_id: r.product_id,
@@ -233,15 +237,18 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
         })),
       )}`;
 
-      // Latest cost price, with history.
+      // Cost price = weighted average of the stock on hand and this purchase (with history).
       if (input.updateCostPrice !== false) {
         for (const r of rows) {
           const p = byId.get(r.product_id)!;
-          if (p.cost_price_paise === r.unit_cost_paise) continue;
-          await tx`update products set cost_price_paise = ${r.unit_cost_paise}, updated_at = now() where id = ${p.id}`;
+          const onHand = Math.max(before.get(p.id) ?? 0, 0);
+          const next = weightedCost(onHand, p.cost_price_paise, r.qty_milli, r.unit_cost_paise);
+          before.set(p.id, onHand + r.qty_milli);
+          if (p.cost_price_paise === next) continue;
+          await tx`update products set cost_price_paise = ${next}, updated_at = now() where id = ${p.id}`;
           await tx`insert into price_history (product_id, field, old_value, new_value, user_id, device_id)
-                   values (${p.id}, 'cost_price_paise', ${p.cost_price_paise}, ${r.unit_cost_paise}, ${ctx.userId}, ${ctx.deviceId})`;
-          p.cost_price_paise = r.unit_cost_paise;
+                   values (${p.id}, 'cost_price_paise', ${p.cost_price_paise}, ${next}, ${ctx.userId}, ${ctx.deviceId})`;
+          p.cost_price_paise = next;
         }
       }
 
@@ -349,4 +356,15 @@ export async function cancelPurchase(sql: Sql, ctx: Ctx, id: number, input: { re
     await audit(tx, ctx, 'purchase.cancelled', { entity: 'purchase_invoice', entityId: id, details: { number: p.number, totalPaise: p.total_paise }, reason, approvedBy });
     return { id, number: p.number };
   });
+}
+
+/**
+ * Weighted-average cost per base unit: (stock on hand × old cost + bought × new cost) ÷ total.
+ * With no stock (or no known cost) the new purchase cost is used as it is.
+ */
+export function weightedCost(onHandMilli: number, oldCostPaise: number | null, boughtMilli: number, newCostPaise: number) {
+  if (onHandMilli <= 0 || oldCostPaise == null) return newCostPaise;
+  const total = BigInt(onHandMilli) * BigInt(oldCostPaise) + BigInt(boughtMilli) * BigInt(newCostPaise);
+  const qty = BigInt(onHandMilli + boughtMilli);
+  return Number((total * 2n + qty) / (qty * 2n));
 }

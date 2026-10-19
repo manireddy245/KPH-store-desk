@@ -8,7 +8,7 @@ export type LiveEvent =
   | { type: 'invoice.created' | 'invoice.cancelled'; id: number; number: string }
   | { type: 'receipt.created' | 'receipt.cancelled'; id: number }
   | { type: 'stock.changed'; productIds: number[] }
-  | { type: 'products.changed' | 'customers.changed' | 'suppliers.changed' | 'settings.changed' | 'users.changed' | 'devices.changed' }
+  | { type: 'products.changed' | 'customers.changed' | 'suppliers.changed' | 'settings.changed' | 'users.changed' | 'devices.changed' | 'accounts.changed' }
   | { type: 'workspace.changed' };
 
 export class Realtime {
