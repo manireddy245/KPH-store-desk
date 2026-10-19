@@ -16,6 +16,7 @@ import { Purchases } from './pages/Purchases';
 import { PurchaseNew } from './pages/PurchaseNew';
 import { Assistant } from './pages/Assistant';
 import { Reports } from './pages/Reports';
+import { AccountsPage } from './pages/Accounts';
 import { Inventory } from './pages/Inventory';
 import { Customers } from './pages/Customers';
 import { Suppliers } from './pages/Suppliers';
@@ -50,6 +51,7 @@ function App() {
           <Route path="/purchases/new" element={<PurchaseNew />} />
           <Route path="/assistant" element={<Assistant />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/accounts" element={<AccountsPage />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/suppliers" element={<Suppliers />} />

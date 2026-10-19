@@ -186,6 +186,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           'products.changed': ['products', 'categories', 'dashboard'],
           'customers.changed': ['customers', 'customer'],
           'suppliers.changed': ['suppliers'],
+          'accounts.changed': ['accounts', 'suppliers', 'reports'],
           'settings.changed': ['settings'],
           'users.changed': ['users', 'roles'],
           'devices.changed': ['devices'],
