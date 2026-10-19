@@ -33,7 +33,7 @@ export async function registerAuthRoutes(app: FastifyInstance, { db }: Shared) {
       device: req.device ? { id: req.device.id, name: req.device.name, status: req.device.status } : null,
       users: approved ? await loginTiles(sql) : [],
       approvers: req.device && !approved && !setupNeeded ? await loginTiles(sql).then((u) => u.filter((x) => x.role_id === 'admin')) : [],
-      settings: { idleLockMinutes: s.idleLockMinutes, discountHintEnabled: s.discountHintEnabled, salesPriceMode: s.salesPriceMode, purchasePriceMode: s.purchasePriceMode, stateCode: s.stateCode },
+      settings: { idleLockMinutes: s.idleLockMinutes, discountHintEnabled: s.discountHintEnabled, salesPriceMode: s.salesPriceMode, purchasePriceMode: s.purchasePriceMode, stateCode: s.stateCode, hasGeminiKey: !!s.geminiApiKey },
       session: req.session ? sessionView(req.session) : null,
       serverTime: new Date().toISOString(),
     };

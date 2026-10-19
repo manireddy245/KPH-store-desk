@@ -95,23 +95,20 @@ Use plain numbers without commas or currency symbols. Do not invent values: use 
 
 export type ModelCaller = (args: { apiKey: string; model: string; pages: ScanPage[] }) => Promise<ReadBill>;
 
-/** Real call to the Gemini API. Tests swap this out. */
-export const callGemini: ModelCaller = async ({ apiKey, model, pages }) => {
+/** POST a generateContent request to Google Gemini and return the answer text. Errors become plain messages. */
+export async function postGemini(apiKey: string, model: string, body: unknown, timeoutMs = 120_000): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   let res: Response;
   try {
     res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
-      signal: AbortSignal.timeout(120_000),
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: PROMPT }, ...pages.map((p) => ({ inline_data: { mime_type: p.mimeType, data: p.base64 } }))] }],
-        generationConfig: { temperature: 0, response_mime_type: 'application/json', response_schema: SCHEMA },
-      }),
+      signal: AbortSignal.timeout(timeoutMs),
+      body: JSON.stringify(body),
     });
   } catch (e) {
     const timeout = (e as Error).name === 'TimeoutError';
-    throw new AppError(503, 'SCANNER_OFFLINE', timeout ? 'The scanner took too long to answer. Try again, or enter the bill by hand.' : "Can't reach the scanner (Google Gemini). Check the internet connection, or enter the bill by hand.");
+    throw new AppError(503, 'SCANNER_OFFLINE', timeout ? 'Google Gemini took too long to answer. Try again.' : "Can't reach Google Gemini. Check the internet connection.");
   }
   const text = await res.text();
   if (!res.ok) {
@@ -123,17 +120,25 @@ export const callGemini: ModelCaller = async ({ apiKey, model, pages }) => {
     }
     if (res.status === 400 && /api key/i.test(msg)) throw new AppError(400, 'SCANNER_KEY', 'The Gemini API key is not valid. Check it in Settings → Shop & billing.');
     if (res.status === 403) throw new AppError(400, 'SCANNER_KEY', 'The Gemini API key was refused. Check it in Settings → Shop & billing.');
-    if (res.status === 404) throw new AppError(400, 'SCANNER_MODEL', `The scanner model "${model}" is not available. Change it in Settings → Shop & billing.`);
-    if (res.status === 429) throw new AppError(429, 'SCANNER_BUSY', 'The scanner is busy or the free limit is used up. Try again in a minute.');
-    throw new AppError(502, 'SCANNER_ERROR', `The scanner could not read this bill (${res.status}): ${msg.slice(0, 200)}`);
+    if (res.status === 404) throw new AppError(400, 'SCANNER_MODEL', `The Gemini model "${model}" is not available. Change it in Settings → Shop & billing.`);
+    if (res.status === 429) throw new AppError(429, 'SCANNER_BUSY', 'Google Gemini is busy or the free limit is used up. Try again in a minute.');
+    throw new AppError(502, 'SCANNER_ERROR', `Google Gemini could not handle this (${res.status}): ${msg.slice(0, 200)}`);
   }
-  let data: { candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[] };
+  let data: { candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[] };
   try {
     data = JSON.parse(text);
   } catch {
-    throw new AppError(502, 'SCANNER_ERROR', 'The scanner gave an unreadable answer. Try again.');
+    throw new AppError(502, 'SCANNER_ERROR', 'Google Gemini gave an unreadable answer. Try again.');
   }
-  const out = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+  return data.candidates?.[0]?.content?.parts?.filter((p) => !p.thought).map((p) => p.text ?? '').join('') ?? '';
+}
+
+/** Real call to the Gemini API. Tests swap this out. */
+export const callGemini: ModelCaller = async ({ apiKey, model, pages }) => {
+  const out = await postGemini(apiKey, model, {
+    contents: [{ role: 'user', parts: [{ text: PROMPT }, ...pages.map((p) => ({ inline_data: { mime_type: p.mimeType, data: p.base64 } }))] }],
+    generationConfig: { temperature: 0, response_mime_type: 'application/json', response_schema: SCHEMA },
+  });
   return parseReadBill(out);
 };
 

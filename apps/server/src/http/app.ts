@@ -12,6 +12,8 @@ import { registerAdminRoutes } from './routes-admin.js';
 import { registerAuthRoutes } from './routes-auth.js';
 import { registerCatalogRoutes } from './routes-catalog.js';
 import { registerPurchaseRoutes } from './routes-purchases.js';
+import { registerAssistantRoutes } from './routes-assistant.js';
+import type { AssistantModel } from '../services/assistant.js';
 import { registerReturnRoutes } from './routes-returns.js';
 import { registerSalesRoutes } from './routes-sales.js';
 import type { ModelCaller } from '../services/scanner.js';
@@ -52,6 +54,8 @@ export interface AppDeps {
   logger?: boolean;
   /** Replace the Gemini call (tests). */
   scanner?: ModelCaller;
+  /** Replace the assistant's Gemini call (tests). */
+  assistant?: AssistantModel;
 }
 
 export async function buildApp(deps: AppDeps) {
@@ -109,6 +113,7 @@ export async function buildApp(deps: AppDeps) {
   await registerSalesRoutes(app, shared);
   await registerAdminRoutes(app, shared);
   await registerPurchaseRoutes(app, shared, { scanner: deps.scanner });
+  await registerAssistantRoutes(app, shared, { assistant: deps.assistant, scanner: deps.scanner });
   await registerReturnRoutes(app, shared);
 
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true, workspace: deps.db.name, time: new Date().toISOString() }));

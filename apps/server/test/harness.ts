@@ -8,13 +8,14 @@ import { hashToken, newToken } from '../src/services/auth.js';
 import type { Ctx } from '../src/services/common.js';
 import { createUser } from '../src/services/users.js';
 import type { ModelCaller } from '../src/services/scanner.js';
+import type { AssistantModel } from '../src/services/assistant.js';
 
 /** A running app on the shared test database, with an admin, a counter and a stock user logged in. */
-export async function makeHarness(opts: { scanner?: ModelCaller } = {}) {
+export async function makeHarness(opts: { scanner?: ModelCaller; assistant?: AssistantModel } = {}) {
   const app = connect(inject('appUrl'), { max: 20 });
   const owner = connect(inject('ownerUrl'), { max: 2 });
   const db: DbProvider = { name: 'sample', app, owner, backupDir: join(inject('dataDir'), 'backups'), scanDir: join(inject('dataDir'), 'scans') };
-  const server = await buildApp({ db, scanner: opts.scanner });
+  const server = await buildApp({ db, scanner: opts.scanner, assistant: opts.assistant });
   const tag = randomUUID().slice(0, 6);
 
   const deviceToken = newToken();
