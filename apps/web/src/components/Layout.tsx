@@ -8,6 +8,7 @@ export const NAV: { to: string; label: string; perm?: Permission | Permission[] 
   { to: '/billing', label: 'Billing', perm: 'billing.create' },
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/sales', label: 'Sales' },
+  { to: '/purchases', label: 'Purchases', perm: 'stock.adjust' },
   { to: '/inventory', label: 'Inventory' },
   { to: '/customers', label: 'Customers' },
   { to: '/suppliers', label: 'Suppliers' },

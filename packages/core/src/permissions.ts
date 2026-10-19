@@ -33,7 +33,7 @@ export const DEFAULT_ROLES: Record<RoleId, { name: string; permissions: Permissi
   },
   stock: {
     name: 'Stock staff',
-    permissions: ['stock.adjust'],
+    permissions: ['stock.adjust', 'suppliers.manage'],
   },
 };
 

@@ -12,6 +12,8 @@ import { Gate } from './pages/Gate';
 import { Billing } from './pages/Billing';
 import { Dashboard } from './pages/Dashboard';
 import { Sales } from './pages/Sales';
+import { Purchases } from './pages/Purchases';
+import { PurchaseNew } from './pages/PurchaseNew';
 import { Inventory } from './pages/Inventory';
 import { Customers } from './pages/Customers';
 import { Suppliers } from './pages/Suppliers';
@@ -32,7 +34,7 @@ const queryClient = new QueryClient({
 function App() {
   const { phase, can } = useSession();
   if (phase !== 'ready') return <Gate />;
-  const home = can('billing.create') ? '/billing' : '/dashboard';
+  const home = can('billing.create') ? '/billing' : can('reports.view') ? '/dashboard' : can('stock.adjust') ? '/purchases' : '/dashboard';
   return (
     <OverrideProvider>
       <Routes>
@@ -41,6 +43,8 @@ function App() {
           <Route path="/billing" element={<Billing />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/sales" element={<Sales />} />
+          <Route path="/purchases" element={<Purchases />} />
+          <Route path="/purchases/new" element={<PurchaseNew />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/suppliers" element={<Suppliers />} />

@@ -7,7 +7,7 @@ Billing, stock and accounts for Kanakapatnam Paints and Hardwares, Kavali.
 - `apps/web` — React screens (counters, office, owner phone)
 - `docs/` — plans, decisions and the phase guides
 
-Start here: [docs/PHASE1-GUIDE.md](docs/PHASE1-GUIDE.md)
+Start here: [docs/PHASE1-GUIDE.md](docs/PHASE1-GUIDE.md) · Invoice scanner: [docs/SCANNER-GUIDE.md](docs/SCANNER-GUIDE.md)
 
 ```bash
 pnpm install

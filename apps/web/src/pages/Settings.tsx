@@ -64,6 +64,8 @@ interface StoreSettingsDto {
   allowNegativeStock: boolean;
   autoBackupHour: number;
   geminiApiKeySet: boolean;
+  geminiModel: string;
+  purchasePrefix: string;
 }
 
 function StoreSettings() {
@@ -93,6 +95,8 @@ function StoreSettings() {
       hint: s.discountHintEnabled,
       negative: s.allowNegativeStock,
       backupHour: String(s.autoBackupHour),
+      geminiModel: s.geminiModel,
+      purchasePrefix: s.purchasePrefix,
     });
   }, [q.data]);
   const t = (k: string) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
@@ -117,6 +121,8 @@ function StoreSettings() {
         discountHintEnabled: !!f.hint,
         allowNegativeStock: !!f.negative,
         autoBackupHour: Number(f.backupHour),
+        geminiModel: String(f.geminiModel).trim(),
+        purchasePrefix: String(f.purchasePrefix).toUpperCase().trim(),
         ...(key ? { geminiApiKey: key } : {}),
       });
       setKey('');
@@ -178,7 +184,13 @@ function StoreSettings() {
             <Checkbox label="Show the discreet max-discount hint (e.g. “D8”) on the billing screen" checked={!!f.hint} onChange={(v) => setF((x) => ({ ...x, hint: v }))} />
             <Checkbox label="Allow billing more than the stock shown (not recommended)" checked={!!f.negative} onChange={(v) => setF((x) => ({ ...x, negative: v }))} />
           </div>
-          <Field label="Gemini API key (for the invoice scanner, Phase 3)" hint={q.data.geminiApiKeySet ? 'A key is saved. Type a new one to replace it.' : 'Not set. Kept on this server only; never included in backups.'} className="sm:col-span-2">
+          <Field label="Purchase number prefix" hint={`Our purchase numbers look like ${String(f.purchasePrefix || 'PUR')}/26-27/000001`}>
+            <Input value={String(f.purchasePrefix ?? '')} onChange={t('purchasePrefix')} maxLength={4} />
+          </Field>
+          <Field label="Scanner model (Google Gemini)" hint="Change only if Google retires this model">
+            <Input value={String(f.geminiModel ?? '')} onChange={t('geminiModel')} />
+          </Field>
+          <Field label="Gemini API key (for the invoice scanner)" hint={q.data.geminiApiKeySet ? 'A key is saved. Type a new one to replace it.' : 'Not set. Kept on this server only; never included in backups.'} className="sm:col-span-2">
             <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
           </Field>
         </div>

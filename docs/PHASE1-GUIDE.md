@@ -95,7 +95,7 @@ These exist only in the sample workspace. The real workspace starts empty and as
 - **Prices are typed excluding GST** in Phase 1. The Incl./Excl. GST toggle comes in Phase 2.
 - **Credit limit is shown and warned about**, but enforcing it with an admin PIN is Phase 4 (as in the brief).
 - **Customer payments are "on account"**; allocating to specific bills is Phase 4.
-- The **Gemini invoice scanner** moves to Phase 3, where it creates a draft purchase entry.
+- The **Gemini invoice scanner** and purchase entry were added after Phase 1 — see docs/SCANNER-GUIDE.md.
 - **Old app JSON import** will be written once you share a sample backup file.
 - **Brand**: all screens follow your Kanakapatnam brand guidelines (Brick Orange, Ink, Concrete, Deep Teal; Archivo + Anek Telugu, bundled so they work without internet). Screen designs: https://claude.ai/artifact/4ijnAiphfJRqh11FVVPYhF
 
