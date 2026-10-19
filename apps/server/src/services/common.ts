@@ -14,6 +14,8 @@ export function can(ctx: Ctx, p: Permission) {
 
 /** An error with a plain-language message that is safe to show staff. */
 export class AppError extends Error {
+  /** A passing problem (service busy): worth trying again. */
+  retryable = false;
   constructor(
     public status: number,
     public code: string,

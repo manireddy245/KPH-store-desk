@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../services/common.js';
-import { clearChat, listMessages, readChatFile, sendMessage, updateCard, type AssistantModel, type StoredFile } from '../services/assistant.js';
+import { clearChat, listMessages, readChatFile, retryMessage, sendMessage, updateCard, type AssistantModel, type StoredFile } from '../services/assistant.js';
 import type { ModelCaller } from '../services/scanner.js';
 import { ctxOf, type Shared } from './app.js';
 
@@ -22,6 +22,12 @@ export async function registerAssistantRoutes(app: FastifyInstance, { db }: Shar
       })
       .parse(req.body);
     return sendMessage(db.app, ctxOf(req), b, { scanDir: db.scanDir, model: opts.assistant, scanner: opts.scanner });
+  });
+
+  /** Answer the same message again after a failed reply (Gemini busy, internet down). */
+  app.post('/api/assistant/messages/:id/retry', async (req) => {
+    const p = z.object({ id }).parse(req.params);
+    return retryMessage(db.app, ctxOf(req), p.id, { scanDir: db.scanDir, model: opts.assistant, scanner: opts.scanner });
   });
 
   app.post('/api/assistant/messages/:id/cards/:n', async (req) => {

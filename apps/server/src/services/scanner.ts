@@ -96,7 +96,27 @@ Use plain numbers without commas or currency symbols. Do not invent values: use 
 export type ModelCaller = (args: { apiKey: string; model: string; pages: ScanPage[] }) => Promise<ReadBill>;
 
 /** POST a generateContent request to Google Gemini and return the answer text. Errors become plain messages. */
+/** Waits between automatic retries when Google says it is busy (tests set these to 0). */
+export const GEMINI_RETRY_WAITS_MS = [2000, 5000];
+
+/**
+ * POST a generateContent request to Google Gemini and return the answer text. When Google
+ * is overloaded (503/500) or rate-limited (429) it is tried again a couple of times before
+ * giving up. Errors become plain messages.
+ */
 export async function postGemini(apiKey: string, model: string, body: unknown, timeoutMs = 120_000): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await postGeminiOnce(apiKey, model, body, timeoutMs);
+    } catch (e) {
+      const wait = GEMINI_RETRY_WAITS_MS[attempt];
+      if (!(e instanceof AppError) || !e.retryable || wait == null) throw e;
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
+
+async function postGeminiOnce(apiKey: string, model: string, body: unknown, timeoutMs: number): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   let res: Response;
   try {
@@ -121,7 +141,9 @@ export async function postGemini(apiKey: string, model: string, body: unknown, t
     if (res.status === 400 && /api key/i.test(msg)) throw new AppError(400, 'SCANNER_KEY', 'The Gemini API key is not valid. Check it in Settings → Shop & billing.');
     if (res.status === 403) throw new AppError(400, 'SCANNER_KEY', 'The Gemini API key was refused. Check it in Settings → Shop & billing.');
     if (res.status === 404) throw new AppError(400, 'SCANNER_MODEL', `The Gemini model "${model}" is not available. Change it in Settings → Shop & billing.`);
-    if (res.status === 429) throw new AppError(429, 'SCANNER_BUSY', 'Google Gemini is busy or the free limit is used up. Try again in a minute.');
+    if (res.status === 429) throw retryable(new AppError(429, 'SCANNER_BUSY', 'Google Gemini is busy or the free limit is used up. Try again in a minute.'));
+    if (res.status === 503 || res.status === 500 || res.status === 504)
+      throw retryable(new AppError(503, 'GEMINI_BUSY', "Google Gemini is overloaded right now (a problem on Google's side, not your shop or key). Try again in a minute."));
     throw new AppError(502, 'SCANNER_ERROR', `Google Gemini could not handle this (${res.status}): ${msg.slice(0, 200)}`);
   }
   let data: { candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[] };
@@ -134,6 +156,11 @@ export async function postGemini(apiKey: string, model: string, body: unknown, t
 }
 
 /** Real call to the Gemini API. Tests swap this out. */
+function retryable(e: AppError) {
+  e.retryable = true;
+  return e;
+}
+
 export const callGemini: ModelCaller = async ({ apiKey, model, pages }) => {
   const out = await postGemini(apiKey, model, {
     contents: [{ role: 'user', parts: [{ text: PROMPT }, ...pages.map((p) => ({ inline_data: { mime_type: p.mimeType, data: p.base64 } }))] }],

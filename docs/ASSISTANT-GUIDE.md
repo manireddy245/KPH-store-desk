@@ -53,3 +53,10 @@ Browsers only allow the microphone on secure (https) addresses, or on the server
 - The assistant uses the Gemini model set in Settings (the same one as the scanner).
 - Each message costs one to four Gemini calls. A bill photo costs one more, for the scanner. On the free tier, the daily limit can run out on a busy day. You will see "Google Gemini is busy or the free limit is used up".
 - Coming later: reports and GST exports from Phase 2B, available through the chat too.
+
+## When Google is busy
+
+Sometimes Google's servers are overloaded ("high demand", error 503). This is on Google's side; your key and the shop server are fine.
+
+- Store Desk tries again by itself twice, a few seconds apart.
+- If it still fails, the chat shows the reason and a **Try again** button. The button resends the same message, with its photos or voice note, so you don't have to type or record it again.

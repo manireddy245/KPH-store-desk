@@ -54,6 +54,13 @@ export function Assistant() {
     onSettled: () => setOptimistic(null),
   });
 
+  const retry = useMutation({
+    mutationFn: (failedId: number) => post<{ messages: AssistantMessage[] }>(`/api/assistant/messages/${failedId}/retry`),
+    onSuccess: (r, failedId) =>
+      qc.setQueryData<AssistantMessage[]>(['assistant'], (old) => [...(old ?? []).filter((m) => m.id !== failedId && m.id !== r.messages[0]!.id), ...r.messages]),
+    onError: (e) => toast({ tone: 'bad', text: e instanceof ApiError ? e.message : 'Could not try again. Check the connection.' }),
+  });
+
   const clear = useMutation({
     mutationFn: () => post('/api/assistant/clear'),
     onSuccess: () => qc.setQueryData(['assistant'], []),
@@ -124,9 +131,14 @@ export function Assistant() {
           </div>
         )}
         <div className="flex flex-col gap-3">
-          {list.map((m) => (
-            <Bubble key={m.id} m={m} />
+          {list.map((m, i) => (
+            <Bubble key={m.id} m={m} onRetry={i === list.length - 1 && m.error && !send.isPending ? () => retry.mutate(m.id) : undefined} retrying={retry.isPending} />
           ))}
+          {retry.isPending && (
+            <div className="flex items-center gap-2 self-start rounded-[10px] bg-white px-3 py-2.5 text-[13px] text-ink-3 shadow-[0_0_0_1px_var(--color-line)]">
+              <Spinner /> Trying again… (Google is busy, this can take up to a minute)
+            </div>
+          )}
           {optimistic && (
             <>
               <Bubble m={{ id: -1, at: new Date().toISOString(), role: 'user', text: optimistic.text, heard: null, files: [], cards: [], error: null }} localFiles={optimistic.files} />
@@ -327,7 +339,7 @@ function StoredFileView({ messageId, n, kind }: { messageId: number; n: number; 
   );
 }
 
-function Bubble({ m, localFiles }: { m: AssistantMessage; localFiles?: Pending[] }) {
+function Bubble({ m, localFiles, onRetry, retrying }: { m: AssistantMessage; localFiles?: Pending[]; onRetry?: () => void; retrying?: boolean }) {
   if (m.role === 'user') {
     return (
       <div className="flex max-w-[85%] flex-col items-end gap-1.5 self-end">
@@ -353,7 +365,16 @@ function Bubble({ m, localFiles }: { m: AssistantMessage; localFiles?: Pending[]
   return (
     <div className="flex max-w-[92%] flex-col gap-2 self-start">
       {m.error ? (
-        <Notice tone="bad">{m.error}</Notice>
+        <>
+          <Notice tone="bad">{m.error}</Notice>
+          {onRetry && (
+            <div>
+              <Button size="sm" onClick={onRetry} busy={retrying}>
+                {retrying ? 'Trying again…' : 'Try again'}
+              </Button>
+            </div>
+          )}
+        </>
       ) : (
         m.text && <div className="whitespace-pre-wrap rounded-[10px] rounded-bl-[3px] bg-white px-3 py-2 text-[15px] shadow-[0_0_0_1px_var(--color-line)]">{m.text}</div>
       )}

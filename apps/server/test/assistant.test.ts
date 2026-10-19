@@ -1,4 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { AppError } from '../src/services/common.js';
+import { GEMINI_RETRY_WAITS_MS, postGemini } from '../src/services/scanner.js';
 import type { AgentReply, GeminiContent } from '../src/services/assistant.js';
 import { rankProducts } from '../src/services/assistant.js';
 import type { ReadBill } from '../src/services/scanner.js';
@@ -148,6 +150,32 @@ describe('assistant', () => {
     expect(await h.stockOf(cementId)).toBe(40000);
   });
 
+  it('try again: a failed answer is hidden and the same message (with its voice note) is answered again', async () => {
+    script = [
+      () => {
+        throw new AppError(503, 'GEMINI_BUSY', 'Google Gemini is overloaded right now');
+      },
+    ];
+    const r = await admin.post('/api/assistant/messages', { text: 'stock?', files: [{ mimeType: 'audio/webm', base64: tinyAudio }] });
+    const failed = r.body.messages[1];
+    expect(failed.error).toContain('overloaded');
+    script = [
+      (c) => {
+        const last = c[c.length - 1]!;
+        expect(last.parts.some((p) => 'inline_data' in p)).toBe(true);
+        return { heard: 'stock?', reply: 'Here you go.', lookups: [], actions: [] };
+      },
+    ];
+    const again = await admin.post(`/api/assistant/messages/${failed.id}/retry`);
+    expect(again.status).toBe(200);
+    expect(again.body.messages[0].id).toBe(r.body.messages[0].id);
+    expect(again.body.messages[1].text).toBe('Here you go.');
+    const list = (await admin.get('/api/assistant/messages')).body as { id: number }[];
+    expect(list.find((m) => m.id === failed.id)).toBeUndefined();
+    // only a failed answer can be retried
+    expect((await admin.post(`/api/assistant/messages/${again.body.messages[1].id}/retry`)).status).toBe(404);
+  });
+
   it('rejects files that are not photos, PDFs or audio', async () => {
     const r = await admin.post('/api/assistant/messages', { files: [{ mimeType: 'application/x-msdownload', base64: tinyJpeg }] });
     expect(r.status).toBe(400);
@@ -181,5 +209,33 @@ describe('rankProducts', () => {
     expect(rankProducts(ps, '12 mm rod')[0]!.sku).toBe('JSW-12');
     expect(rankProducts(ps, 'tmt 8mm')[0]!.sku).toBe('JSW-8');
     expect(rankProducts(ps, 'asian paints')).toEqual([]);
+  });
+});
+
+describe('postGemini', () => {
+  it('tries again when Google is overloaded, then gives a plain message', async () => {
+    const waits = [...GEMINI_RETRY_WAITS_MS];
+    GEMINI_RETRY_WAITS_MS.splice(0, waits.length, 0, 0);
+    const busy = () => new Response(JSON.stringify({ error: { message: 'This model is currently experiencing high demand.' } }), { status: 503 });
+    const ok = () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'hi' }] } }] }), { status: 200 });
+    try {
+      const f1 = vi.fn().mockResolvedValueOnce(busy()).mockResolvedValueOnce(ok());
+      vi.stubGlobal('fetch', f1);
+      expect(await postGemini('k', 'm', {})).toBe('hi');
+      expect(f1).toHaveBeenCalledTimes(2);
+
+      const f2 = vi.fn().mockImplementation(async () => busy());
+      vi.stubGlobal('fetch', f2);
+      await expect(postGemini('k', 'm', {})).rejects.toThrow(/overloaded right now/);
+      expect(f2).toHaveBeenCalledTimes(3);
+
+      const f3 = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ error: { message: 'API key not valid' } }), { status: 400 }));
+      vi.stubGlobal('fetch', f3);
+      await expect(postGemini('k', 'm', {})).rejects.toThrow(/key is not valid/);
+      expect(f3).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+      GEMINI_RETRY_WAITS_MS.splice(0, 2, ...waits);
+    }
   });
 });

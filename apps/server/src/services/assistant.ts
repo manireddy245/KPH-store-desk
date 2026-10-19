@@ -568,9 +568,6 @@ export async function sendMessage(
   const buffers = files.map((f) => ({ kind: kindOf(f.mimeType), mimeType: f.mimeType, buf: Buffer.from(f.base64, 'base64'), base64: f.base64 }));
   if (buffers.reduce((s, b) => s + b.buf.length, 0) > MAX_TOTAL) throw new AppError(400, 'FILE_TOO_BIG', 'The files are too large together (15 MB). Send fewer photos or a shorter voice note.');
 
-  const settings = await getSettings(sql);
-  const history = await listMessages(sql, ctx, { limit: 12 });
-
   // Save the person's message and its files first, so nothing is lost if Gemini fails.
   const [u] = await sql<{ id: number }[]>`
     insert into assistant_messages (user_id, device_id, role, text) values (${ctx.userId}, ${ctx.deviceId}, 'user', ${text}) returning id`;
@@ -583,14 +580,37 @@ export async function sendMessage(
     return { kind: b.kind, mimeType: b.mimeType, file: rel };
   });
   if (stored.length) await sql`update assistant_messages set files = ${sql.json(stored as never)} where id = ${u!.id}`;
+  return respond(sql, ctx, u!.id, opts);
+}
+
+/** "Try again" on an answer that failed (Gemini busy, no internet): the failed answer is hidden and the same message is answered again. */
+export async function retryMessage(sql: Sql, ctx: Ctx, failedId: number, opts: { scanDir: string; model?: AssistantModel; scanner?: ModelCaller }) {
+  const [a] = await sql<{ id: number }[]>`
+    select id from assistant_messages where id = ${failedId} and user_id = ${ctx.userId} and role = 'assistant' and error is not null and not hidden`;
+  if (!a) throw new AppError(404, 'NOT_FOUND', 'Nothing to try again');
+  const [u] = await sql<{ id: number }[]>`
+    select id from assistant_messages where user_id = ${ctx.userId} and role = 'user' and id < ${failedId} order by id desc limit 1`;
+  if (!u) throw new AppError(404, 'NOT_FOUND', 'Nothing to try again');
+  await sql`update assistant_messages set hidden = true where id = ${failedId}`;
+  return respond(sql, ctx, u.id, opts);
+}
+
+/** Answer a saved message of the person. */
+async function respond(sql: Sql, ctx: Ctx, userMsgId: number, opts: { scanDir: string; model?: AssistantModel; scanner?: ModelCaller }) {
+  const [msg] = await sql<MessageRow[]>`select id, at, role, text, heard, files, cards, error from assistant_messages where id = ${userMsgId}`;
+  const text = msg!.text;
+  const buffers = msg!.files.map((f) => ({ kind: f.kind, mimeType: f.mimeType, base64: readChatFile(opts.scanDir, f.file).toString('base64') }));
+  const settings = await getSettings(sql);
+  const history = await listMessages(sql, ctx, { before: userMsgId, limit: 12 });
+  const u = { id: userMsgId };
 
   const finish = async (fields: { text: string; heard?: string | null; cards?: Card[]; error?: string | null }) => {
-    if (fields.heard) await sql`update assistant_messages set heard = ${fields.heard} where id = ${u!.id}`;
+    if (fields.heard) await sql`update assistant_messages set heard = ${fields.heard} where id = ${u.id}`;
     const [a] = await sql<{ id: number }[]>`
       insert into assistant_messages (user_id, device_id, role, text, cards, error)
       values (${ctx.userId}, ${ctx.deviceId}, 'assistant', ${fields.text}, ${sql.json((fields.cards ?? []) as never)}, ${fields.error ?? null}) returning id`;
     const [mine, theirs] = await Promise.all([
-      sql<MessageRow[]>`select id, at, role, text, heard, files, cards, error from assistant_messages where id = ${u!.id}`,
+      sql<MessageRow[]>`select id, at, role, text, heard, files, cards, error from assistant_messages where id = ${u.id}`,
       sql<MessageRow[]>`select id, at, role, text, heard, files, cards, error from assistant_messages where id = ${a!.id}`,
     ]);
     return { messages: [mine[0]!, theirs[0]!] };
