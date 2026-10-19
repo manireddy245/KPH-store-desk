@@ -14,9 +14,11 @@ Status: planning. No app code written yet.
 | Printers | Normal A4 printer only. Invoice layout: provisional until owner sends sample |
 | Project folder | Desktop\KPH APP |
 
+| Online copy | DigitalOcean Bangalore (VPS + PostgreSQL, ~₹1,000/month) — account not created yet; set up in a later phase |
+| Front end | Designed in Claude Design using the Kanakapatnam brand guidelines (https://claude.ai/artifact/4ijnAiphfJRqh11FVVPYhF) |
+
 ## Pending
 
-- Cloud provider for the online copy (see options/costs in chat; pay nothing until owner approves)
 - **Sales** turnover (purchases ≈ ₹4 crore/yr) — decides whether B2B e-invoicing (IRN) is mandatory (> ₹5 crore aggregate turnover). Confirm with CA.
 - Server PC specs: Windows version, RAM, SSD/HDD, UPS
 - Backup second location (Phase 7)
