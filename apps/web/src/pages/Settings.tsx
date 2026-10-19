@@ -55,6 +55,7 @@ interface StoreSettingsDto {
   storeAddress: string;
   storePlace: string;
   storePincode: string;
+  tallyCompanyName: string;
   storePhone: string;
   storeGstin: string;
   stateCode: string;
@@ -89,6 +90,7 @@ function StoreSettings() {
       storeAddress: s.storeAddress,
       storePlace: s.storePlace,
       storePincode: s.storePincode,
+      tallyCompanyName: s.tallyCompanyName,
       storePhone: s.storePhone,
       storeGstin: s.storeGstin,
       stateCode: s.stateCode,
@@ -117,6 +119,7 @@ function StoreSettings() {
         storeAddress: f.storeAddress,
         storePlace: f.storePlace,
         storePincode: String(f.storePincode ?? '').trim(),
+        tallyCompanyName: String(f.tallyCompanyName ?? '').trim(),
         storePhone: f.storePhone,
         storeGstin: String(f.storeGstin).toUpperCase().trim(),
         stateCode: f.stateCode,
@@ -159,6 +162,9 @@ function StoreSettings() {
           </Field>
           <Field label="PIN code (for e-way bills)">
             <Input value={String(f.storePincode ?? '')} onChange={t('storePincode')} inputMode="numeric" maxLength={6} />
+          </Field>
+          <Field label="Company name in Tally" hint="Exactly as your CA's Tally shows it; blank = shop name" className="sm:col-span-2">
+            <Input value={String(f.tallyCompanyName ?? '')} onChange={t('tallyCompanyName')} />
           </Field>
           <Field label="Phone">
             <Input value={String(f.storePhone ?? '')} onChange={t('storePhone')} />

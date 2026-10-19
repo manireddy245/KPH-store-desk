@@ -1,9 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { formatPaise, formatQty } from '@kph/core';
-import { ApiError, download, get } from '../lib/api';
-import { MODE_LABEL, fmtDate, todayIst } from '../lib/format';
+import { formatPaise, formatQty, periodRange } from '@kph/core';
+import { ApiError, download, get, put } from '../lib/api';
+import { MODE_LABEL, fmtDate, fmtDateTime, todayIst } from '../lib/format';
 import { useSession } from '../lib/session';
 import { Page } from '../components/Layout';
 import { Badge, Button, Empty, Field, Input, Notice, PageTitle, Select, Spinner, Table, cx, useToast } from '../components/ui';
@@ -13,14 +13,19 @@ import { EwayModal } from '../components/Eway';
  * Registers, GST returns (GSTR-1, GSTR-3B), discounts and e-way bills, each downloadable as Excel for the CA.
  */
 
-type Tab = 'sales' | 'purchases' | 'gstr1' | 'gstr3b' | 'discounts' | 'eway';
-const TABS: { id: Tab; label: string }[] = [
+type Tab = 'sales' | 'purchases' | 'gstr1' | 'gstr3b' | 'discounts' | 'eway' | 'pl' | 'profit' | 'stock' | 'balance' | 'tally';
+const TABS: { id: Tab; label: string; cost?: true }[] = [
+  { id: 'pl', label: 'Profit & Loss', cost: true },
+  { id: 'profit', label: 'Profit by item', cost: true },
+  { id: 'stock', label: 'Stock value', cost: true },
+  { id: 'balance', label: 'Balance summary', cost: true },
   { id: 'gstr1', label: 'GSTR-1' },
   { id: 'gstr3b', label: 'GSTR-3B' },
   { id: 'sales', label: 'Sales register' },
   { id: 'purchases', label: 'Purchase register' },
   { id: 'discounts', label: 'Discounts' },
   { id: 'eway', label: 'E-way bills' },
+  { id: 'tally', label: 'Tally export' },
 ];
 
 const ENDPOINT: Record<Tab, string> = {
@@ -30,6 +35,11 @@ const ENDPOINT: Record<Tab, string> = {
   gstr3b: '/api/reports/gstr3b',
   discounts: '/api/reports/discounts',
   eway: '/api/reports/eway-pending',
+  pl: '/api/reports/profit-loss',
+  profit: '/api/reports/profit-by',
+  stock: '/api/reports/stock-value',
+  balance: '/api/reports/balance-summary',
+  tally: '',
 };
 
 const rs = (p: number | null | undefined) => (p == null ? '' : formatPaise(p));
@@ -56,7 +66,10 @@ function quarters() {
 export function Reports() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
-  const tab = (params.get('tab') as Tab) || 'gstr1';
+  const { can } = useSession();
+  const tabs = TABS.filter((t) => !t.cost || can('products.view_cost'));
+  const tab = (tabs.find((t) => t.id === params.get('tab'))?.id ?? tabs[0]!.id) as Tab;
+  const [by, setBy] = useState<'product' | 'category' | 'brand'>('product');
   const [kind, setKind] = useState<'month' | 'quarter' | 'dates'>('month');
   const [month, setMonth] = useState(lastMonth());
   const [quarter, setQuarter] = useState(quarters()[0]!.value);
@@ -64,8 +77,18 @@ export function Reports() {
   const [to, setTo] = useState(todayIst());
   const [downloading, setDownloading] = useState(false);
 
-  const query = kind === 'month' ? `period=${month}` : kind === 'quarter' ? `period=${quarter}` : `from=${from}&to=${to}`;
-  const data = useQuery({ queryKey: ['reports', tab, query], queryFn: () => get(`${ENDPOINT[tab]}?${query}`), retry: false });
+  const periodQuery = kind === 'month' ? `period=${month}` : kind === 'quarter' ? `period=${quarter}` : `from=${from}&to=${to}`;
+  const range = useMemo(() => {
+    try {
+      return kind === 'dates' ? { from, to } : periodRange(kind === 'month' ? month : quarter);
+    } catch {
+      return { from, to };
+    }
+  }, [kind, month, quarter, from, to]);
+  /** Stock and balance are "as on" the end of the period (or today, if the period isn't over). */
+  const asOf = range.to > todayIst() ? todayIst() : range.to;
+  const query = tab === 'stock' || tab === 'balance' ? `asOf=${asOf}` : tab === 'profit' ? `${periodQuery}&by=${by}` : periodQuery;
+  const data = useQuery({ queryKey: ['reports', tab, query], queryFn: () => get(`${ENDPOINT[tab]}?${query}`), retry: false, enabled: tab !== 'tally' });
 
   const excel = async () => {
     setDownloading(true);
@@ -117,7 +140,7 @@ export function Reports() {
           </>
         )}
         <div className="ml-auto">
-          {tab !== 'eway' && (
+          {tab !== 'eway' && tab !== 'balance' && tab !== 'tally' && (
             <Button variant="primary" onClick={() => void excel()} busy={downloading} disabled={!data.data}>
               Download Excel
             </Button>
@@ -126,7 +149,7 @@ export function Reports() {
       </div>
 
       <nav aria-label="Reports" className="flex flex-wrap gap-1 border-b border-line">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -150,6 +173,11 @@ export function Reports() {
       {data.data && tab === 'purchases' && <PurchasesView d={data.data} />}
       {data.data && tab === 'discounts' && <DiscountView d={data.data} />}
       {data.data && tab === 'eway' && <EwayView rows={data.data} />}
+      {data.data && tab === 'pl' && <PLView d={data.data} />}
+      {data.data && tab === 'profit' && <ProfitByView d={data.data} by={by} setBy={setBy} />}
+      {data.data && tab === 'stock' && <StockView d={data.data} />}
+      {data.data && tab === 'balance' && <BalanceView d={data.data} />}
+      {tab === 'tally' && <TallyView range={range} periodQuery={periodQuery} />}
     </Page>
   );
 }
@@ -511,6 +539,352 @@ function EwayView({ rows }: { rows: { id: number; number: string; invoice_date: 
         )}
       </Section>
       {open != null && <EwayModal invoiceId={open} open onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ profit & loss
+
+const pct = (bp: number) => `${(bp / 100).toFixed(1)}%`;
+const money = (p: number) => (p < 0 ? `−₹${rs(-p)}` : `₹${rs(p)}`);
+
+function PLView({ d }: { d: { sales: number; salesReturns: number; netSales: number; costOfSales: number; costOfReturns: number; cogs: number; stockLossPaise: number; grossProfit: number; grossMarginBp: number; directExpenses: { name: string; amount: number }[]; indirectExpenses: { name: string; amount: number }[]; otherIncome: { name: string; amount: number }[]; netProfit: number; netMarginBp: number; linesWithoutCost: number; notes: string[] } }) {
+  const Row = ({ label, value, strong, sub, minus }: { label: ReactNode; value: number; strong?: boolean; sub?: boolean; minus?: boolean }) => (
+    <tr className={strong ? 'bg-paper' : ''}>
+      <td className={cx(strong ? 'font-bold' : sub ? 'pl-8 text-ink-3' : 'pl-4')}>{label}</td>
+      <td className={cx('num text-right', strong && 'text-[16px] font-extrabold', value < 0 && strong && 'text-bad')}>
+        {minus ? (value > 0 ? '− ' : value < 0 ? '+ ' : '') : value < 0 ? '− ' : ''}₹{rs(Math.abs(value))}
+        {strong && value < 0 ? ' (loss)' : ''}
+      </td>
+    </tr>
+  );
+  return (
+    <div className="flex flex-col gap-4">
+      {d.linesWithoutCost > 0 && <Notice tone="warn">{d.linesWithoutCost} bill line(s) were sold before the product had a cost price, so their cost is counted as zero. Enter cost prices in Inventory.</Notice>}
+      <Tiles
+        items={[
+          { label: 'Net sales', value: money(d.netSales), sub: 'before GST, less returns' },
+          { label: 'Gross profit', value: money(d.grossProfit), sub: `${pct(d.grossMarginBp)} of sales` },
+          { label: 'Expenses', value: money([...d.directExpenses, ...d.indirectExpenses].reduce((t, x) => t + x.amount, 0)), sub: 'incl. round-off on bills' },
+          { label: 'Net profit', value: money(d.netProfit), sub: `${pct(d.netMarginBp)} of sales` },
+        ]}
+      />
+      <Section title="Profit & Loss">
+        <Table minWidth={480} head={<tr><th>Particulars</th><th className="text-right">Amount</th></tr>}>
+          <Row label="Sales (before GST)" value={d.sales} />
+          <Row label="Less sales returns" value={d.salesReturns} minus />
+          <Row label="Net sales" value={d.netSales} strong />
+          <Row label="Cost of goods sold" value={d.costOfSales} minus />
+          <Row label="Add back cost of goods returned" value={d.costOfReturns} />
+          {d.stockLossPaise !== 0 && <Row label={d.stockLossPaise > 0 ? 'Stock written off (damaged, lost, count short)' : 'Stock found on counting'} value={Math.abs(d.stockLossPaise)} minus={d.stockLossPaise > 0} />}
+          <Row label="Gross profit" value={d.grossProfit} strong />
+          {d.directExpenses.map((x) => <Row key={x.name} label={x.name} value={x.amount} minus sub />)}
+          {d.indirectExpenses.map((x) => <Row key={x.name} label={x.name} value={x.amount} minus sub />)}
+          {d.otherIncome.map((x) => <Row key={x.name} label={`${x.name} (income)`} value={x.amount} sub />)}
+          <Row label="Net profit" value={d.netProfit} strong />
+        </Table>
+      </Section>
+      {d.notes.map((n, i) => (
+        <p key={i} className="text-[12px] text-ink-3">
+          {n}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+type ProfitRow = { key: string; name: string; unit_code: string | null; qty: number; sales: number; cost: number; profit: number; marginBp: number; unknown_cost_lines: number };
+
+function ProfitByView({ d, by, setBy }: { d: { rows: ProfitRow[]; totals: { sales: number; cost: number; profit: number; marginBp: number; unknownCostLines: number } }; by: 'product' | 'category' | 'brand'; setBy: (b: 'product' | 'category' | 'brand') => void }) {
+  const top = Math.max(1, ...d.rows.map((r) => Math.abs(r.profit)));
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {(['product', 'category', 'brand'] as const).map((b) => (
+          <Button key={b} size="sm" variant={by === b ? 'dark' : 'secondary'} onClick={() => setBy(b)}>
+            By {b}
+          </Button>
+        ))}
+        <span className="num ml-auto text-sm">
+          Profit <b>₹{rs(d.totals.profit)}</b> on ₹{rs(d.totals.sales)} · {pct(d.totals.marginBp)}
+        </span>
+      </div>
+      {d.totals.unknownCostLines > 0 && <Notice tone="warn">Some lines had no cost price when sold; their profit is overstated.</Notice>}
+      <Section title={`Profit by ${by}`} count={d.rows.length}>
+        {d.rows.length ? (
+          <Table
+            head={
+              <tr>
+                <th>{by === 'product' ? 'Product' : by === 'category' ? 'Category' : 'Brand'}</th>
+                {by === 'product' && <th className="text-right">Qty</th>}
+                <th className="text-right">Sales</th>
+                <th className="text-right">Cost</th>
+                <th className="text-right">Profit</th>
+                <th className="w-[22%]">Margin</th>
+              </tr>
+            }
+          >
+            {d.rows.map((r) => (
+              <tr key={r.key}>
+                <td>
+                  {r.name} {r.unknown_cost_lines > 0 && <Badge tone="warn">no cost</Badge>}
+                </td>
+                {by === 'product' && (
+                  <R>
+                    {formatQty(r.qty)} {r.unit_code}
+                  </R>
+                )}
+                <R>{rs(r.sales)}</R>
+                <R>{rs(r.cost)}</R>
+                <R b>{rs(r.profit)}</R>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 flex-1 rounded-full bg-concrete">
+                      <div className={cx('h-2 rounded-full', r.profit < 0 ? 'bg-bad' : 'bg-teal')} style={{ width: `${(Math.abs(r.profit) / top) * 100}%` }} />
+                    </div>
+                    <span className={cx('num w-12 text-right text-[12px]', r.marginBp < 0 ? 'text-bad' : 'text-ink-3')}>{pct(r.marginBp)}</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        ) : (
+          <Empty>No sales in this period.</Empty>
+        )}
+      </Section>
+    </div>
+  );
+}
+
+function StockView({ d }: { d: { asOf: string; rows: { id: number; sku: string; name: string; unit_code: string; category: string | null; qty: number; cost: number | null; value: number }[]; byCategory: { name: string; value: number }[]; totals: { value: number; items: number; negative: number; noCost: number } } }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <Tiles
+        items={[
+          { label: 'Stock at cost', value: `₹${rs(d.totals.value)}`, sub: `on ${fmtDate(d.asOf)}` },
+          { label: 'Items in stock', value: d.totals.items },
+          ...d.byCategory.slice(0, 4).map((c) => ({ label: c.name, value: `₹${rs(c.value)}` })),
+        ]}
+      />
+      {d.totals.noCost > 0 && <Notice tone="warn">{d.totals.noCost} item(s) in stock have no cost price, so they are valued at zero.</Notice>}
+      {d.totals.negative > 0 && <Notice tone="warn">{d.totals.negative} item(s) show negative stock. Check them in Inventory.</Notice>}
+      <Section title="Stock at weighted-average cost" count={d.rows.length}>
+        <Table head={<tr><th>Product</th><th>Category</th><th className="text-right">Qty</th><th className="text-right">Cost / unit</th><th className="text-right">Value</th></tr>}>
+          {d.rows.map((r) => (
+            <tr key={r.id} className={r.qty < 0 ? 'text-bad' : ''}>
+              <td>
+                {r.name} <span className="num text-[12px] text-ink-3">{r.sku}</span>
+              </td>
+              <td className="text-ink-3">{r.category}</td>
+              <R>
+                {formatQty(r.qty)} {r.unit_code}
+              </R>
+              <R>{r.cost == null ? '—' : rs(r.cost)}</R>
+              <R b>{rs(r.value)}</R>
+            </tr>
+          ))}
+        </Table>
+      </Section>
+      <p className="text-[12px] text-ink-3">For a past date the quantities are exact; they are valued at today&apos;s average cost.</p>
+    </div>
+  );
+}
+
+function BalanceView({ d }: { d: { asOf: string; assets: { name: string; amount: number }[]; liabilities: { name: string; amount: number }[]; totalAssets: number; totalLiabilities: number; ownersFunds: number } }) {
+  const list = (xs: { name: string; amount: number }[]) =>
+    xs.map((x) => (
+      <tr key={x.name}>
+        <td>{x.name}</td>
+        <R>{rs(x.amount)}</R>
+      </tr>
+    ));
+  return (
+    <div className="flex flex-col gap-4">
+      <Tiles
+        items={[
+          { label: 'What the shop has', value: `₹${rs(d.totalAssets)}` },
+          { label: 'What it owes', value: `₹${rs(d.totalLiabilities)}` },
+          { label: 'Owner’s funds', value: `₹${rs(d.ownersFunds)}`, sub: `on ${fmtDate(d.asOf)}` },
+        ]}
+      />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Section title="Has">
+          <Table minWidth={320} head={<tr><th>Item</th><th className="text-right">Amount</th></tr>}>
+            {list(d.assets)}
+            <tr className="bg-paper font-bold">
+              <td>Total</td>
+              <R b>{rs(d.totalAssets)}</R>
+            </tr>
+          </Table>
+        </Section>
+        <Section title="Owes">
+          <Table minWidth={320} head={<tr><th>Item</th><th className="text-right">Amount</th></tr>}>
+            {list(d.liabilities)}
+            <tr className="bg-paper font-bold">
+              <td>Total</td>
+              <R b>{rs(d.totalLiabilities)}</R>
+            </tr>
+          </Table>
+        </Section>
+      </div>
+      <p className="text-[12px] text-ink-3">A simple picture, not a formal balance sheet: stock is at weighted-average cost, and fixed assets appear only if entered in the accounts. Your CA prepares the final accounts.</p>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ Tally
+
+interface TallyName {
+  ledgerId: number;
+  name: string;
+  group: string;
+  partyType: string | null;
+  tallyName: string;
+  custom: boolean;
+  changed: boolean;
+}
+
+function TallyView({ range, periodQuery }: { range: { from: string; to: string }; periodQuery: string }) {
+  const { can } = useSession();
+  const toast = useToast();
+  const names = useQuery({ queryKey: ['reports', 'tally-names'], queryFn: () => get<TallyName[]>('/api/tally/names') });
+  const history = useQuery({ queryKey: ['reports', 'tally-exports'], queryFn: () => get<{ id: number; what: string; from_date: string | null; to_date: string | null; voucher_count: number; at: string; user_name: string }[]>('/api/tally/exports') });
+  const [busy, setBusy] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
+  const [editing, setEditing] = useState<Record<number, string>>({});
+  const overlap = (history.data ?? []).some((h) => h.what === 'vouchers' && h.from_date && h.to_date && h.from_date <= range.to && h.to_date >= range.from);
+
+  const fetchFile = async (what: string, path: string, name: string) => {
+    setBusy(what);
+    try {
+      await download(path, name);
+      void history.refetch();
+    } catch (e) {
+      toast({ tone: 'bad', text: e instanceof ApiError ? e.message : 'Could not download' });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const stopEditing = (id: number) =>
+    setEditing((e) => {
+      const n = { ...e };
+      delete n[id];
+      return n;
+    });
+  const saveName = async (ledgerId: number, value: string | null) => {
+    try {
+      await put(`/api/tally/names/${ledgerId}`, { tallyName: value });
+      stopEditing(ledgerId);
+      void names.refetch();
+    } catch (e) {
+      toast({ tone: 'bad', text: e instanceof ApiError ? e.message : 'Could not save' });
+    }
+  };
+
+  const rows = (names.data ?? []).filter((n) => !filter || `${n.name} ${n.tallyName} ${n.group}`.toLowerCase().includes(filter.toLowerCase()));
+  return (
+    <div className="flex flex-col gap-4">
+      <Section title="Export to TallyPrime">
+        <div className="flex flex-col gap-3 p-3 text-sm">
+          <ol className="list-decimal space-y-1 pl-5">
+            <li>
+              <b>First time:</b> in Tally, make a <b>copy of the company</b> (or a test company) and import there first.
+            </li>
+            <li>
+              Import <b>masters</b> (ledgers) once, and again whenever new customers, suppliers or accounts are added. Stock items are optional; the vouchers are accounts-only.
+            </li>
+            <li>
+              Import the <b>vouchers</b> for the period: TallyPrime → Gateway → <b>Import</b> → Transactions → choose the XML file.
+            </li>
+            <li>Check that the trial balance in Tally matches Accounts → Books → Trial balance here.</li>
+          </ol>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => void fetchFile('masters', '/api/tally/masters.xml', 'tally-masters.xml')} busy={busy === 'masters'}>
+              Masters (ledgers)
+            </Button>
+            <Button onClick={() => void fetchFile('stock', '/api/tally/stock-items.xml', 'tally-stock-items.xml')} busy={busy === 'stock'}>
+              Stock items (optional)
+            </Button>
+            <Button variant="primary" onClick={() => void fetchFile('vouchers', `/api/tally/vouchers.xml?${periodQuery}`, 'tally-vouchers.xml')} busy={busy === 'vouchers'}>
+              Vouchers {fmtDate(range.from)} – {fmtDate(range.to)}
+            </Button>
+          </div>
+          {overlap && <Notice tone="warn">Vouchers for part of this period were exported before. Importing them again into the same Tally company can make duplicates. Check before importing.</Notice>}
+          <p className="text-[12px] text-ink-3">Format: TallyPrime XML (Import Data), for TallyPrime 3.0 and later. The company name in the file comes from Settings → Shop &amp; billing (blank = shop name).</p>
+        </div>
+      </Section>
+
+      <Section title="Account names in Tally" count={names.data?.length}>
+        <div className="p-3">
+          <p className="mb-2 text-[13px] text-ink-3">
+            If your CA&apos;s Tally uses different names (e.g. “Sales @ 18%” instead of “Sales”), set them here so the vouchers land on the right ledgers. Names marked <Badge tone="warn">changed</Badge> were made unique automatically.
+          </p>
+          <Input placeholder="Search accounts…" value={filter} onChange={(e) => setFilter(e.target.value)} className="max-w-[320px]" />
+        </div>
+        <Table head={<tr><th>Our account</th><th>Group</th><th>Name in Tally</th><th /></tr>}>
+          {rows.slice(0, 300).map((n) => (
+            <tr key={n.ledgerId}>
+              <td>{n.name}</td>
+              <td className="text-ink-3">{n.group}</td>
+              <td>
+                {editing[n.ledgerId] != null ? (
+                  <Input
+                    autoFocus
+                    aria-label={`Tally name for ${n.name}`}
+                    value={editing[n.ledgerId]}
+                    onChange={(e) => setEditing((x) => ({ ...x, [n.ledgerId]: e.target.value }))}
+                    onKeyDown={(e) => e.key === 'Enter' && void saveName(n.ledgerId, editing[n.ledgerId] || null)}
+                  />
+                ) : (
+                  <span>
+                    {n.tallyName} {n.custom ? <Badge tone="teal">set</Badge> : n.changed ? <Badge tone="warn">changed</Badge> : null}
+                  </span>
+                )}
+              </td>
+              <td className="whitespace-nowrap text-right">
+                {can('accounts.manage') &&
+                  (editing[n.ledgerId] != null ? (
+                    <>
+                      <Button size="sm" variant="primary" onClick={() => void saveName(n.ledgerId, editing[n.ledgerId] || null)}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => stopEditing(n.ledgerId)}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button size="sm" variant="ghost" onClick={() => setEditing((x) => ({ ...x, [n.ledgerId]: n.tallyName }))}>
+                        Rename
+                      </Button>
+                      {n.custom && (
+                        <Button size="sm" variant="ghost" onClick={() => void saveName(n.ledgerId, null)}>
+                          Reset
+                        </Button>
+                      )}
+                    </>
+                  ))}
+              </td>
+            </tr>
+          ))}
+        </Table>
+      </Section>
+
+      {(history.data?.length ?? 0) > 0 && (
+        <Section title="Past exports" count={history.data!.length}>
+          <Table minWidth={480} head={<tr><th>When</th><th>What</th><th>Period</th><th className="text-right">Count</th><th>By</th></tr>}>
+            {history.data!.map((h) => (
+              <tr key={h.id}>
+                <td className="num">{fmtDateTime(h.at)}</td>
+                <td>{h.what.replace('_', ' ')}</td>
+                <td className="num">{h.from_date ? `${fmtDate(h.from_date)} – ${fmtDate(h.to_date)}` : '—'}</td>
+                <R>{h.voucher_count}</R>
+                <td>{h.user_name}</td>
+              </tr>
+            ))}
+          </Table>
+        </Section>
+      )}
     </div>
   );
 }

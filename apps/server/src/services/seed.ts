@@ -150,7 +150,8 @@ export async function seedSample(sql: Sql) {
         contentsMilli: SAMPLE_CONTENTS[sku] ? SAMPLE_CONTENTS[sku]! * 1000 : null,
         contentsUnit: SAMPLE_CONTENTS[sku] ? 'ltr' : null,
       },
-      { isSample: true },
+      // opening stock dated before the month of sample bills, so past-date stock figures make sense
+      { isSample: true, openingAt: new Date(Date.now() - 31 * 86400000) },
     ))!;
     productIds.push(id);
   }

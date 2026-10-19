@@ -160,7 +160,7 @@ export async function getProduct(q: Q, ctx: Ctx, id: number) {
   return p;
 }
 
-export async function createProduct(sql: Sql, ctx: Ctx, input: ProductInput & { sku: string; name: string; unitCode: string }, opts: { isSample?: boolean } = {}) {
+export async function createProduct(sql: Sql, ctx: Ctx, input: ProductInput & { sku: string; name: string; unitCode: string }, opts: { isSample?: boolean; openingAt?: Date } = {}) {
   checkFieldPermissions(ctx, input, true);
   validate(input);
   try {
@@ -178,8 +178,8 @@ export async function createProduct(sql: Sql, ctx: Ctx, input: ProductInput & { 
       const id = p!.id;
       if (input.units?.length) await saveUnits(tx, id, input.unitCode, input.units);
       if (input.openingQtyMilli && input.openingQtyMilli > 0) {
-        await tx`insert into stock_movements (product_id, qty_milli, kind, unit_cost_paise, reason, user_id, device_id)
-                 values (${id}, ${input.openingQtyMilli}, 'opening', ${input.costPricePaise ?? null}, 'Opening stock', ${ctx.userId}, ${ctx.deviceId})`;
+        await tx`insert into stock_movements (product_id, qty_milli, kind, unit_cost_paise, reason, user_id, device_id, at)
+                 values (${id}, ${input.openingQtyMilli}, 'opening', ${input.costPricePaise ?? null}, 'Opening stock', ${ctx.userId}, ${ctx.deviceId}, ${opts.openingAt ?? new Date()})`;
       }
       await audit(tx, ctx, 'product.created', { entity: 'product', entityId: id, details: { sku: input.sku, name: input.name, openingQtyMilli: input.openingQtyMilli ?? 0 } });
       return { id };
