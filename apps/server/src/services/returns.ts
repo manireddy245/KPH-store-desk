@@ -4,6 +4,7 @@ import { consumeOverride } from './auth.js';
 import { AppError, audit, can, requirePerm, type Ctx } from './common.js';
 import { nextDocNumber, postVoucher, systemLedgerIds } from './ledger.js';
 import { lockProducts } from './products.js';
+import { reverseRewardsOnReturn } from './partners.js';
 import { getSettings } from './settings.js';
 
 /**
@@ -183,6 +184,7 @@ export async function createCreditNote(sql: Sql, ctx: Ctx, invoiceId: number, in
     }
     await lockProducts(tx, rows.map((x) => x.l.product_id));
     await tx`insert into stock_movements ${tx(moves)}`;
+    await reverseRewardsOnReturn(tx, ctx, invoiceId, id, number, rows.map((x) => ({ invoiceLineId: x.l.id, baseQtyMilli: x.base, lineBaseQtyMilli: x.l.base_qty_milli })));
 
     await audit(tx, ctx, 'credit_note.created', {
       entity: 'credit_note',

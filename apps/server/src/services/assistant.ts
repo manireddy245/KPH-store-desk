@@ -234,7 +234,8 @@ export function rankProducts<T extends { name: string; sku: string; brand_name?:
       for (const t of toks) s += hay.includes(` ${t} `) ? 1 : hay.includes(` ${t}`) ? 0.8 : hay.includes(t) ? 0.4 : 0;
       return { p, s: s / toks.length };
     })
-    .filter((x) => x.s >= 0.5)
+    // With two or more words, most of them must match ("unicorn paint" must not pick any paint).
+    .filter((x) => x.s >= (toks.length >= 2 ? 0.75 : 0.5))
     .sort((a, b) => b.s - a.s || a.p.name.length - b.p.name.length)
     .map((x) => x.p);
 }

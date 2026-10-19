@@ -143,6 +143,7 @@ export interface InvoiceFull {
   lines: InvoiceLine[];
   store: { name: string; address: string; phone: string; gstin: string; stateCode: string; stateName: string; terms: string; labels: 'en' | 'te-en'; place?: string; pincode?: string };
   transport?: Transport | null;
+  partner?: { partner_id: number; name: string; type_name: string; site_name: string | null } | null;
 }
 
 export interface Category {

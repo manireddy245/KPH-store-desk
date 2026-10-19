@@ -18,6 +18,7 @@ import { Assistant } from './pages/Assistant';
 import { Reports } from './pages/Reports';
 import { AccountsPage } from './pages/Accounts';
 import { Khata } from './pages/Khata';
+import { Partners } from './pages/Partners';
 import { StatementPrint } from './pages/StatementPrint';
 import { Inventory } from './pages/Inventory';
 import { Customers } from './pages/Customers';
@@ -56,6 +57,7 @@ function App() {
           <Route path="/reports" element={<Reports />} />
           <Route path="/accounts" element={<AccountsPage />} />
           <Route path="/khata" element={<Khata />} />
+          <Route path="/partners" element={<Partners />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/suppliers" element={<Suppliers />} />

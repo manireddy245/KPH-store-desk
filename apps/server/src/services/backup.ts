@@ -17,6 +17,7 @@ export const BACKUP_TABLES = [
   'purchase_scans', 'purchase_invoices', 'purchase_lines', 'product_aliases',
   'product_units', 'credit_notes', 'credit_note_lines', 'debit_notes', 'debit_note_lines', 'gst_periods',
   'assistant_messages', 'invoice_transport', 'money_entries', 'payment_allocations', 'cash_closings',
+  'partner_types', 'partner_reward_rules', 'partners', 'partner_sites', 'invoice_partners', 'partner_rewards', 'partner_notes', 'paint_shades',
   'tally_names', 'tally_exports',
   'receipt_allocations', 'reminders',
 ] as const;

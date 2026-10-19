@@ -26,6 +26,7 @@ import { MODE_LABEL, uuid } from '../lib/format';
 import { useOverride } from '../lib/override';
 import { useSession } from '../lib/session';
 import type { AssistantBillCard, CustomerRow, ProductRow } from '../lib/types';
+import { PartnerPicker, type PartnerPick } from '../components/PartnerBits';
 import { Button, Field, Input, Kbd, Modal, Notice, cx, useDebounced, useToast } from '../components/ui';
 
 type Mode = 'cash' | 'upi' | 'card' | 'credit';
@@ -53,6 +54,9 @@ interface Draft {
   /** GST place of supply; null = automatic */
   pos?: string | null;
   billMode?: PriceMode;
+  /** Trade partner who brought this customer, and their site. */
+  partner?: PartnerPick | null;
+  siteId?: number | null;
   mode: Mode;
   notes: string;
   savedAt?: string;
@@ -296,6 +300,8 @@ export function Billing() {
         paymentMode: draft.mode,
         notes: draft.notes || undefined,
         creditOverrideToken,
+        partnerId: draft.partner?.id ?? null,
+        siteId: draft.partner ? (draft.siteId ?? null) : null,
         lines: rows.map((x) => ({
           productId: x.p!.id,
           qtyMilli: x.qtyMilli!,
@@ -729,6 +735,8 @@ export function Billing() {
             </div>
           )}
         </div>
+
+        <PartnerPicker partner={draft.partner ?? null} siteId={draft.siteId ?? null} onChange={(partner, siteId) => setDraft((d) => ({ ...d, partner, siteId }))} />
 
         <div className="flex flex-col gap-2.5 rounded-[6px] border border-line bg-white px-4 py-3.5">
           <span className="eyebrow">Payment</span>

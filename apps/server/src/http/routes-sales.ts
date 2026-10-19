@@ -33,6 +33,8 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
         paymentMode: z.enum(['cash', 'upi', 'card', 'credit']),
         notes: z.string().max(500).optional(),
         creditOverrideToken: z.string().optional(),
+        partnerId: z.number().int().positive().nullable().optional(),
+        siteId: z.number().int().positive().nullable().optional(),
         lines: z
           .array(
             z.object({
@@ -90,7 +92,11 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
       place: s.storePlace,
       pincode: s.storePincode,
     };
-    return { ...inv, store, transport: await getTransport(db.app, invId) };
+    const [partner] = await db.app<{ partner_id: number; name: string; type_name: string; site_name: string | null }[]>`
+      select ip.partner_id, p.name, t.name as type_name, s.name as site_name
+      from invoice_partners ip join partners p on p.id = ip.partner_id join partner_types t on t.id = p.type_id left join partner_sites s on s.id = ip.site_id
+      where ip.invoice_id = ${invId}`;
+    return { ...inv, store, transport: await getTransport(db.app, invId), partner: partner ?? null };
   });
 
   app.post('/api/invoices/:id/cancel', async (req) => {

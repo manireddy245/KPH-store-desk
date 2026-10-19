@@ -22,6 +22,7 @@ import { AppError, audit, can, requirePerm, type Ctx } from './common.js';
 import { assertMonthOpen } from './gst.js';
 import { ledgerBalance, nextDocNumber, postVoucher, reverseVoucher, systemLedgerIds } from './ledger.js';
 import { lockProducts } from './products.js';
+import { reverseRewardsOnCancel, tagInvoicePartner } from './partners.js';
 import { getSettings } from './settings.js';
 
 export type PaymentMode = 'cash' | 'upi' | 'card' | 'credit';
@@ -55,6 +56,9 @@ export interface InvoiceInput {
   lines: InvoiceLineInput[];
   /** Admin approval to go over the customer's credit limit (credit bills). */
   creditOverrideToken?: string;
+  /** Trade partner (painter, mason…) who brought this bill, and their site. */
+  partnerId?: number | null;
+  siteId?: number | null;
 }
 
 export interface ProductForBill {
@@ -374,6 +378,8 @@ async function saveInvoice(
       })),
     )}`;
 
+    if (input.partnerId) await tagInvoicePartner(tx, ctx, id, input.partnerId, input.siteId ?? null);
+
     await audit(tx, ctx, 'invoice.created', {
       entity: 'sales_invoice',
       entityId: id,
@@ -484,6 +490,7 @@ export async function cancelInvoice(sql: Sql, ctx: Ctx, id: number, input: { rea
       update sales_invoices set status = 'cancelled', cancel_reason = ${reason}, cancelled_at = now(),
         cancelled_by = ${ctx.userId}, cancel_approved_by = ${approvedBy}, cancel_voucher_id = ${cancelVoucherId}
       where id = ${id}`;
+    await reverseRewardsOnCancel(tx, ctx, id, inv.number);
     await audit(tx, ctx, 'invoice.cancelled', {
       entity: 'sales_invoice',
       entityId: id,

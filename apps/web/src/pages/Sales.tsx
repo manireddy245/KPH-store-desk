@@ -11,6 +11,7 @@ import { Page } from '../components/Layout';
 import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, cx, useDebounced, useToast } from '../components/ui';
 import { SalesReturnModal } from './Returns';
 import { EwayModal } from '../components/Eway';
+import { PartnerPicker, type PartnerPick } from '../components/PartnerBits';
 
 export function Sales() {
   const [params, setParams] = useSearchParams();
@@ -128,6 +129,21 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
   const [cancelOpen, setCancelOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [ewayOpen, setEwayOpen] = useState(false);
+  const [tagOpen, setTagOpen] = useState(false);
+  const [tagPartner, setTagPartner] = useState<PartnerPick | null>(null);
+  const [tagSite, setTagSite] = useState<number | null>(null);
+  const saveTag = async () => {
+    if (!tagPartner || id == null) return;
+    try {
+      await post(`/api/invoices/${id}/partner`, { partnerId: tagPartner.id, siteId: tagSite });
+      setTagOpen(false);
+      setTagPartner(null);
+      void qc.invalidateQueries({ queryKey: ['invoice', id] });
+      void qc.invalidateQueries({ queryKey: ['partners'] });
+    } catch (e) {
+      toast({ tone: 'bad', text: e instanceof ApiError ? e.message : 'Could not tag the partner' });
+    }
+  };
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -169,7 +185,7 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
   return (
     <>
       <Modal
-        open={id != null && !cancelOpen && !returnOpen && !ewayOpen}
+        open={id != null && !cancelOpen && !returnOpen && !ewayOpen && !tagOpen}
         onClose={onClose}
         title={d ? `Bill ${d.number}` : 'Bill'}
         width={860}
@@ -202,6 +218,20 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
           </div>
         ) : (
           <div className="flex flex-col gap-4 text-sm">
+            {d.partner ? (
+              <div className="text-[13px]">
+                Brought by <b>{d.partner.name}</b> <span className="text-ink-3">· {d.partner.type_name}{d.partner.site_name ? ` · ${d.partner.site_name}` : ''}</span>
+              </div>
+            ) : (
+              d.status === 'posted' &&
+              can('partners.manage') && (
+                <div>
+                  <Button size="sm" variant="ghost" onClick={() => setTagOpen(true)}>
+                    + Tag the painter / mason who brought this bill
+                  </Button>
+                </div>
+              )
+            )}
             {d.status === 'cancelled' && (
               <Notice tone="bad">
                 <b>Cancelled</b> {fmtDateTime(d.cancelled_at)} by {d.cancelled_by_name}
@@ -280,6 +310,10 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
       </Modal>
       <SalesReturnModal invoice={d ?? null} open={returnOpen} onClose={() => setReturnOpen(false)} />
       {d && <EwayModal invoiceId={d.id} open={ewayOpen} onClose={() => setEwayOpen(false)} />}
+      <Modal open={tagOpen} onClose={() => setTagOpen(false)} title="Tag a partner" footer={<><Button variant="ghost" onClick={() => setTagOpen(false)}>Cancel</Button><Button variant="primary" disabled={!tagPartner} onClick={() => void saveTag()}>Tag partner</Button></>}>
+        <PartnerPicker partner={tagPartner} siteId={tagSite} onChange={(p, site) => (setTagPartner(p), setTagSite(site))} />
+        <p className="mt-2 text-[12px] text-ink-3">Their reward for this bill is credited now.</p>
+      </Modal>
       <Modal
         open={cancelOpen}
         onClose={() => setCancelOpen(false)}

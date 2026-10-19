@@ -11,6 +11,8 @@ export const PERMISSIONS = {
   'returns.create': 'Take back goods (sales return / credit note)',
   'payments.receive': 'Receive customer payments',
   'customers.manage': 'Add and edit customers',
+  'partners.manage': 'Add trade partners (painters, masons…), tag them on bills, notes and shades',
+  'partners.rewards': 'Set partner reward rules and pay out rewards',
   'suppliers.manage': 'Add and edit suppliers',
   'products.manage': 'Add and edit products (not prices)',
   'products.edit_price': 'Edit selling prices and max discounts',
@@ -34,7 +36,7 @@ export const DEFAULT_ROLES: Record<RoleId, { name: string; permissions: Permissi
   admin: { name: 'Admin', permissions: ALL_PERMISSIONS },
   counter: {
     name: 'Counter staff',
-    permissions: ['billing.create', 'payments.receive', 'customers.manage'],
+    permissions: ['billing.create', 'payments.receive', 'customers.manage', 'partners.manage'],
   },
   stock: {
     name: 'Stock staff',

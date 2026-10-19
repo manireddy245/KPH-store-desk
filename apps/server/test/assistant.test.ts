@@ -239,3 +239,11 @@ describe('postGemini', () => {
     }
   });
 });
+
+describe('rankProducts with several words', () => {
+  it('needs most words to match', () => {
+    const ps = [{ name: 'Birla Opus Interior Paint 20L', sku: 'BO-20' }, { name: 'UltraTech PPC Cement 50kg', sku: 'UT' }];
+    expect(rankProducts(ps, 'unicorn paint')).toEqual([]);
+    expect(rankProducts(ps, 'opus paint')[0]!.sku).toBe('BO-20');
+  });
+});

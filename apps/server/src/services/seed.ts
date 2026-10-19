@@ -3,6 +3,7 @@ import type { Sql } from '../db/connect.js';
 import { createInvoice, createReceipt, type PaymentMode } from './billing.js';
 import type { Ctx } from './common.js';
 import { createCustomer, createSupplier } from './parties.js';
+import { createPartner, setRules } from './partners.js';
 import { createProduct, findOrCreateBrand } from './products.js';
 import { setSettings } from './settings.js';
 import { createUser } from './users.js';
@@ -159,6 +160,20 @@ export async function seedSample(sql: Sql) {
   for (const c of CUSTOMERS) customerIds.push((await createCustomer(sql, admin, c, { isSample: true })).id);
   for (const s of SUPPLIERS) await createSupplier(sql, admin, s, { isSample: true });
 
+  // Sample trade partners (painters, masons) with simple rewards, tagged on some bills below.
+  const types = await sql<{ id: number; name: string }[]>`select id, name from partner_types`;
+  const typeId = (n: string) => types.find((t) => t.name === n)!.id;
+  await setRules(sql, admin, typeId('Painter'), [{ categoryId: null, mode: 'percent', value: 200 }]);
+  await setRules(sql, admin, typeId('Mason'), [{ categoryId: null, mode: 'percent', value: 100 }]);
+  const partnerIds: number[] = [];
+  for (const p of [
+    { name: 'Raju (Painter)', phone: '9440012345', area: 'Kavali', typeId: typeId('Painter') },
+    { name: 'Venkat Rao (Painter)', phone: '9440023456', area: 'Bogole', typeId: typeId('Painter') },
+    { name: 'Subbaiah (Mason)', phone: '9440034567', area: 'Musunuru', typeId: typeId('Mason') },
+    { name: 'Krishna (Contractor)', phone: '9440045678', area: 'Kavali', typeId: typeId('Contractor') },
+  ])
+    partnerIds.push((await createPartner(sql, admin, p, { isSample: true })).id);
+
   // About a month of history so the dashboard and reports have something to show.
   let seed = 42;
   const rnd = (n: number) => (seed = (seed * 1103515245 + 12345) % 2147483648) % n;
@@ -180,7 +195,8 @@ export async function seedSample(sql: Sql) {
       const mode = modes[rnd(modes.length)]!;
       const customerId = mode === 'credit' || rnd(2) === 0 ? customerIds[rnd(customerIds.length)]! : null;
       try {
-        await createInvoice(sql, b % 2 ? counter : admin, { customerId, paymentMode: mode, lines: uniq }, { at });
+        const partnerId = b % 3 === 0 ? partnerIds[(day + b) % 3] : null; // the 4th partner has gone quiet
+        await createInvoice(sql, b % 2 ? counter : admin, { customerId, paymentMode: mode, lines: uniq, partnerId }, { at });
       } catch {
         // skip lines that ran out of stock in the simulation
       }
