@@ -172,7 +172,7 @@ function StoreSettings() {
           <Field label="PIN code (for e-way bills)">
             <Input value={String(f.storePincode ?? '')} onChange={t('storePincode')} inputMode="numeric" maxLength={6} />
           </Field>
-          <Field label="Credit days (default)" hint="A credit bill is overdue after this many days, unless the customer has their own">
+          <Field label="Credit days (default)" hint="0 = no due dates (bills are never marked overdue). A customer can have their own">
             <Input value={String(f.creditDaysDefault ?? '')} onChange={t('creditDaysDefault')} inputMode="numeric" />
           </Field>
           <Field label="WhatsApp reminder language">

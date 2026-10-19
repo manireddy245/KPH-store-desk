@@ -1080,7 +1080,10 @@ function OpeningBalances() {
 
   useEffect(() => {
     if (!o.data) return;
-    setDate(o.data.openingDate);
+    // Books usually start on 1 April (the financial year); suggest the latest one.
+    const t = todayIst();
+    const lastApril = Number(t.slice(5, 7)) >= 4 ? `${t.slice(0, 4)}-04-01` : `${Number(t.slice(0, 4)) - 1}-04-01`;
+    setDate(o.data.openingDate || lastApril);
     setVals(Object.fromEntries(o.data.ledgers.map((l) => [l.id, { amt: l.opening_dr_paise ? (Math.abs(l.opening_dr_paise) / 100).toFixed(2) : '', side: l.opening_dr_paise < 0 || l.nature === 'liability' ? 'cr' : 'dr' }])));
   }, [o.data]);
 

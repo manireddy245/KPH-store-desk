@@ -14,7 +14,9 @@ export interface CustomerDues {
   phone: string | null;
   balancePaise: number;
   creditLimitPaise: number | null;
-  creditDays: number;
+  creditDays: number | null;
+  onHold: boolean;
+  holdNote: string | null;
   buckets: [number, number, number, number];
   overduePaise: number;
   dueTodayPaise: number;
@@ -22,7 +24,7 @@ export interface CustomerDues {
   nextDueDate: string | null;
   lastReceipt: string | null;
   lastReminder: string | null;
-  bills: { id: number | null; number: string; date: string; dueDate: string; totalPaise: number; duePaise: number; days: number; overdue: boolean }[];
+  bills: { id: number | null; number: string; date: string; dueDate: string | null; totalPaise: number; duePaise: number; days: number; overdue: boolean }[];
 }
 
 /**
@@ -47,15 +49,33 @@ export function useWhatsAppReminder() {
   };
 }
 
+/** WhatsApp reminder with a choice of language: Telugu or English. */
 export function WhatsAppButton({ customerId, disabled, size = 'sm', label = 'WhatsApp' }: { customerId: number; disabled?: boolean; size?: 'sm' | 'md'; label?: string }) {
   const remind = useWhatsAppReminder();
+  const [open, setOpen] = useState(false);
+  const pick = (lang: 'te' | 'en') => {
+    setOpen(false);
+    void remind(customerId, lang);
+  };
   return (
-    <Button size={size} disabled={disabled} onClick={() => void remind(customerId)} title="Send a balance reminder on WhatsApp" aria-label={label || "WhatsApp reminder"}>
-      <svg aria-hidden width="15" height="15" viewBox="0 0 24 24" fill="#1d7a3e">
-        <path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z" />
-      </svg>
-      {label}
-    </Button>
+    <span className="relative inline-block">
+      <Button size={size} disabled={disabled} onClick={() => setOpen((o) => !o)} title="Send a balance reminder on WhatsApp" aria-label={label || 'WhatsApp reminder'} aria-expanded={open}>
+        <svg aria-hidden width="15" height="15" viewBox="0 0 24 24" fill="#1d7a3e">
+          <path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z" />
+        </svg>
+        {label}
+      </Button>
+      {open && (
+        <span role="menu" className="absolute right-0 top-full z-30 mt-1 flex w-[150px] flex-col overflow-hidden rounded-[6px] border border-line bg-white text-left shadow-lg">
+          <button type="button" role="menuitem" className="telugu px-3 py-2 text-left text-sm hover:bg-paper" onClick={() => pick('te')}>
+            తెలుగులో పంపు
+          </button>
+          <button type="button" role="menuitem" className="px-3 py-2 text-left text-sm hover:bg-paper" onClick={() => pick('en')}>
+            Send in English
+          </button>
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -90,7 +110,7 @@ export function DuesPanel({ customerId }: { customerId: number }) {
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         <div className={cx('rounded-[4px] px-3 py-2', x.overduePaise > 0 ? 'bg-bad-soft text-bad-ink' : 'bg-concrete')}>
-          <div className="text-[11px]">Overdue (over {x.creditDays} days)</div>
+          <div className="text-[11px]">{x.creditDays == null ? 'Overdue (no credit days set)' : `Overdue (over ${x.creditDays} days)`}</div>
           <div className="num text-base font-extrabold">{money(x.overduePaise)}</div>
         </div>
         {AGE_BUCKETS.map((label, i) => (
@@ -101,6 +121,7 @@ export function DuesPanel({ customerId }: { customerId: number }) {
         ))}
       </div>
       {x.balancePaise < 0 && <Notice tone="teal">They have paid {money(-x.balancePaise)} in advance.</Notice>}
+      {x.onHold && <Notice tone="warn">Old dues: kept as a record only. No reminders are sent and they don't appear in the due lists.{x.holdNote ? ` Note: ${x.holdNote}` : ''}</Notice>}
       <div className="overflow-hidden rounded-[6px] border border-line">
         {x.bills.length ? (
           <Table minWidth={520} head={<tr><th>Bill</th><th>Date</th><th>Due by</th><th className="text-right">Bill total</th><th className="text-right">Still due</th></tr>}>
@@ -108,7 +129,7 @@ export function DuesPanel({ customerId }: { customerId: number }) {
               <tr key={i}>
                 <td className="num font-semibold">{b.number}</td>
                 <td className="num">{fmtDate(b.date)} <span className="text-[12px] text-ink-3">({b.days} day{b.days === 1 ? "" : "s"})</span></td>
-                <td className="num">{b.overdue ? <Badge tone="bad">overdue · {fmtDate(b.dueDate)}</Badge> : fmtDate(b.dueDate)}</td>
+                <td className="num">{b.overdue ? <Badge tone="bad">overdue · {fmtDate(b.dueDate)}</Badge> : b.dueDate ? fmtDate(b.dueDate) : '—'}</td>
                 <td className="num text-right">{money(b.totalPaise)}</td>
                 <td className="num text-right font-bold">{money(b.duePaise)}</td>
               </tr>

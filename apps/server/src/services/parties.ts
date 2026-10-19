@@ -13,6 +13,9 @@ export interface CustomerInput {
   /** Days before a credit bill is overdue; null = the shop default. */
   creditDays?: number | null;
   language?: 'te' | 'en' | null;
+  /** Old dues kept only as a record: no reminders, not in overdue lists. */
+  duesOnHold?: boolean;
+  holdNote?: string | null;
   notes?: string | null;
   active?: boolean;
   /** Only when creating: amount they already owe us (negative = advance). */
@@ -33,7 +36,7 @@ export async function listCustomers(q: Q, f: { search?: string; withBalanceOnly?
   const search = f.search?.trim() ? `%${f.search.trim().toLowerCase()}%` : null;
   return q`
     select * from (
-      select c.id, c.name, c.phone, c.gstin, c.address, c.state_code, c.credit_limit_paise, c.credit_days, c.language, c.notes, c.active, c.is_sample,
+      select c.id, c.name, c.phone, c.gstin, c.address, c.state_code, c.credit_limit_paise, c.credit_days, c.language, c.dues_on_hold, c.hold_note, c.notes, c.active, c.is_sample,
              c.created_at, c.ledger_id,
              l.opening_dr_paise + coalesce(vl.bal, 0) as balance_paise,
              coalesce(si.total, 0) as total_purchases_paise,
@@ -96,6 +99,8 @@ export async function updateCustomer(sql: Sql, ctx: Ctx, id: number, input: Cust
     set.credit_days = input.creditDays;
   }
   if (input.language !== undefined) set.language = input.language;
+  if (input.duesOnHold !== undefined) set.dues_on_hold = input.duesOnHold;
+  if (input.holdNote !== undefined) set.hold_note = clean(input.holdNote);
   if (input.notes !== undefined) set.notes = clean(input.notes);
   if (input.active !== undefined) set.active = input.active;
   if (!Object.keys(set).length) return { id };

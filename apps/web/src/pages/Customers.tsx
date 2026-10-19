@@ -120,6 +120,8 @@ function CustomerForm({ open, customer, onClose }: { open: boolean; customer: Cu
       notes: customer?.notes ?? '',
       opening: '',
       days: customer?.credit_days != null ? String(customer.credit_days) : '',
+      hold: customer?.dues_on_hold ? '1' : '',
+      holdNote: customer?.hold_note ?? '',
       lang: customer?.language ?? '',
     });
   }, [open, customer]);
@@ -127,6 +129,10 @@ function CustomerForm({ open, customer, onClose }: { open: boolean; customer: Cu
   const submit = async () => {
     setError(null);
     const body: Record<string, unknown> = { name: f.name, phone: f.phone || null, gstin: f.gstin || null, address: f.address || null, notes: f.notes || null, language: f.lang || null };
+    if (customer) {
+      body.duesOnHold = f.hold === '1';
+      body.holdNote = f.holdNote || null;
+    }
     if (admin) {
       if (f.days?.trim() && !/^\d{1,3}$/.test(f.days.trim())) return setError('Credit days must be a number of days');
       body.creditDays = f.days?.trim() ? Number(f.days) : null;
@@ -191,7 +197,7 @@ function CustomerForm({ open, customer, onClose }: { open: boolean; customer: Cu
           </Field>
         )}
         {admin && (
-          <Field label="Credit days" hint="Days before a credit bill is overdue. Blank = shop default">
+          <Field label="Credit days" hint="Days before a credit bill counts as overdue. Blank = shop default">
             <Input value={f.days ?? ''} onChange={set('days')} inputMode="numeric" />
           </Field>
         )}
@@ -210,6 +216,18 @@ function CustomerForm({ open, customer, onClose }: { open: boolean; customer: Cu
         <Field label="Notes" className="sm:col-span-2">
           <Input value={f.notes ?? ''} onChange={set('notes')} />
         </Field>
+        {customer && (
+          <div className="flex flex-col gap-2 rounded-[6px] bg-paper p-3 sm:col-span-2">
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={f.hold === '1'} onChange={(e) => setF((x) => ({ ...x, hold: e.target.checked ? '1' : '' }))} />
+              <span>
+                <b>Old dues: keep as a record only</b>
+                <span className="block text-[12px] text-ink-3">The balance stays on the books, but no reminders are sent and they are left out of the due lists.</span>
+              </span>
+            </label>
+            {f.hold === '1' && <Input placeholder="Note, e.g. not paying since 2024" value={f.holdNote ?? ''} onChange={set('holdNote')} />}
+          </div>
+        )}
         {error && (
           <div className="sm:col-span-2">
             <Notice tone="bad">{error}</Notice>
@@ -253,7 +271,7 @@ export function CustomerDetail({ id, onClose, onEdit }: { id: number | null; onC
                 </Button>
               )}
               <Button onClick={() => window.open(`/print/statement/${c.id}`, '_blank')}>Print statement</Button>
-              {can('payments.receive') && c.balance_paise > 0 && c.phone && <WhatsAppButton customerId={c.id} size="md" />}
+              {can('payments.receive') && c.balance_paise > 0 && c.phone && !c.dues_on_hold && <WhatsAppButton customerId={c.id} size="md" />}
               {can('payments.receive') && (
                 <Button variant="primary" onClick={() => setPayOpen(true)}>
                   Receive payment

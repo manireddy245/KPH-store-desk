@@ -17,16 +17,26 @@ export function Khata() {
   const { can } = useSession();
   const toast = useToast();
   const [asOf, setAsOf] = useState(todayIst());
-  const q = useQuery({ queryKey: ['khata', 'ageing', asOf], queryFn: () => get<{ asOf: string; customers: CustomerDues[]; totals: { receivablePaise: number; advancesPaise: number; overduePaise: number; buckets: number[]; customers: number; overLimit: number } }>(`/api/khata/ageing?asOf=${asOf}`) });
-  const [filter, setFilter] = useState<'all' | 'overdue' | 'limit' | 'advance'>('overdue');
+  const q = useQuery({ queryKey: ['khata', 'ageing', asOf], queryFn: () => get<{ asOf: string; customers: CustomerDues[]; totals: { receivablePaise: number; advancesPaise: number; overduePaise: number; onHoldPaise: number; buckets: number[]; customers: number; overLimit: number } }>(`/api/khata/ageing?asOf=${asOf}`) });
+  const [picked, setFilter] = useState<'all' | 'overdue' | 'limit' | 'advance' | 'hold' | null>(null);
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState<number | null>(null);
   const [paying, setPaying] = useState<CustomerDues | null>(null);
 
+  // Start on "Overdue" only when some bills have due dates and are overdue; otherwise show everyone.
+  const filter = picked ?? ((q.data?.totals.overduePaise ?? 0) > 0 ? 'overdue' : 'all');
   const rows = useMemo(() => {
     const all = q.data?.customers ?? [];
     const f = all.filter((c) =>
-      filter === 'overdue' ? c.overduePaise > 0 : filter === 'limit' ? c.creditLimitPaise != null && c.balancePaise > c.creditLimitPaise : filter === 'advance' ? c.balancePaise < 0 : c.balancePaise > 0,
+      filter === 'overdue'
+        ? c.overduePaise > 0
+        : filter === 'limit'
+          ? c.creditLimitPaise != null && c.balancePaise > c.creditLimitPaise
+          : filter === 'advance'
+            ? c.balancePaise < 0
+            : filter === 'hold'
+              ? c.onHold && c.balancePaise > 0
+              : c.balancePaise > 0 && !c.onHold,
     );
     const s = search.trim().toLowerCase();
     return s ? f.filter((c) => c.name.toLowerCase().includes(s) || (c.phone ?? '').includes(s)) : f;
@@ -35,7 +45,8 @@ export function Khata() {
   const t = q.data?.totals;
   const counts = q.data && {
     overdue: q.data.customers.filter((c) => c.overduePaise > 0).length,
-    all: q.data.customers.filter((c) => c.balancePaise > 0).length,
+    all: q.data.customers.filter((c) => c.balancePaise > 0 && !c.onHold).length,
+    hold: q.data.customers.filter((c) => c.onHold && c.balancePaise > 0).length,
     limit: t!.overLimit,
     advance: q.data.customers.filter((c) => c.balancePaise < 0).length,
   };
@@ -62,7 +73,7 @@ export function Khata() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
-            <Tile label="Customers owe" value={money(t.receivablePaise)} sub={`${t.customers} customers`} />
+            <Tile label="Customers owe" value={money(t.receivablePaise)} sub={`${t.customers} customers${t.onHoldPaise ? ` · old dues ${money(t.onHoldPaise)}` : ''}`} />
             <Tile label="Overdue" value={money(t.overduePaise)} tone={t.overduePaise > 0 ? 'bad' : undefined} />
             {AGE_BUCKETS.map((b, i) => (
               <Tile key={b} label={b} value={money(t.buckets[i] ?? 0)} tone={i === 3 && (t.buckets[3] ?? 0) > 0 ? 'bad' : undefined} />
@@ -75,6 +86,7 @@ export function Khata() {
                 ['all', 'Everyone who owes'],
                 ['limit', 'Over credit limit'],
                 ['advance', 'Paid in advance'],
+                ['hold', 'Old dues (record only)'],
               ] as const
             ).map(([k, label]) => (
               <Button key={k} size="sm" variant={filter === k ? 'dark' : 'secondary'} onClick={() => setFilter(k)}>
@@ -107,7 +119,9 @@ export function Khata() {
                           {c.name}
                         </button>
                         <div className="text-[12px] text-ink-3">
-                          {c.phone ?? 'no phone'} · {c.creditDays} days credit
+                          {c.phone ?? 'no phone'}
+                          {c.creditDays != null && <> · {c.creditDays} days credit</>}
+                          {c.onHold && <> · <Badge tone="warn">old dues</Badge></>}
                           {c.creditLimitPaise != null && <> · limit {money(c.creditLimitPaise)}</>}
                         </div>
                       </td>
@@ -121,7 +135,7 @@ export function Khata() {
                       <td className="num">{c.lastReminder ? fmtDate(c.lastReminder.slice(0, 10)) : '—'}</td>
                       <td className="whitespace-nowrap text-right">
                         <span className="inline-flex gap-1.5">
-                          {can('payments.receive') && c.balancePaise > 0 && <WhatsAppButton customerId={c.customerId} disabled={!c.phone} />}
+                          {can('payments.receive') && c.balancePaise > 0 && !c.onHold && <WhatsAppButton customerId={c.customerId} disabled={!c.phone} />}
                           {can('payments.receive') && (
                             <Button size="sm" variant="primary" onClick={() => setPaying(c)}>
                               Receive
@@ -138,7 +152,7 @@ export function Khata() {
             )}
           </section>
           <p className="text-[12px] text-ink-3">
-            A bill is overdue after the customer&apos;s credit days (shop default in Settings). Payments marked against bills settle those bills; other payments settle the oldest bills first.
+            A bill counts as overdue only if credit days are set (per customer, or a shop default in Settings). Payments marked against bills settle those bills; other payments settle the oldest bills first. Old dues kept as a record only are left out of reminders and due lists.
           </p>
         </>
       )}

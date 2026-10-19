@@ -17,7 +17,7 @@ interface StatementData {
   totalDebitPaise: number;
   totalCreditPaise: number;
   closingPaise: number;
-  openBills: { number: string; date: string; dueDate: string; duePaise: number; days: number; overdue: boolean }[];
+  openBills: { number: string; date: string; dueDate: string | null; duePaise: number; days: number; overdue: boolean }[];
   overduePaise: number;
   store: { name: string; address: string; phone: string; gstin: string; upiId: string; labels: 'en' | 'te-en' };
 }
@@ -167,7 +167,7 @@ export function StatementPrint() {
                     <td>{b.number}</td>
                     <td>{fmtDate(b.date)}</td>
                     <td>{b.days} day{b.days === 1 ? "" : "s"}</td>
-                    <td>{b.overdue ? <b className="text-bad">overdue since {fmtDate(b.dueDate)}</b> : `due by ${fmtDate(b.dueDate)}`}</td>
+                    <td>{b.overdue ? <b className="text-bad">overdue since {fmtDate(b.dueDate)}</b> : b.dueDate ? `due by ${fmtDate(b.dueDate)}` : ''}</td>
                     <td className="text-right font-bold">₹{rs(b.duePaise)}</td>
                   </tr>
                 ))}

@@ -41,7 +41,7 @@ export function Dashboard() {
   const showDues = can('payments.receive') || can('reports.view');
   const dues = useQuery({
     queryKey: ['khata', 'due'],
-    queryFn: () => get<{ overduePaise: number; dueTodayPaise: number; count: number; customers: { customerId: number; name: string; phone: string | null; balancePaise: number; overduePaise: number; dueTodayPaise: number; oldestDays: number; lastReminder: string | null }[] }>('/api/khata/due'),
+    queryFn: () => get<{ overduePaise: number; dueTodayPaise: number; count: number; owingPaise: number; owing: { customerId: number; name: string; phone: string | null; balancePaise: number; oldestDays: number; lastReminder: string | null }[]; customers: { customerId: number; name: string; phone: string | null; balancePaise: number; overduePaise: number; dueTodayPaise: number; oldestDays: number; lastReminder: string | null }[] }>('/api/khata/due'),
     enabled: showDues,
     refetchInterval: 300_000,
   });
@@ -122,7 +122,30 @@ export function Dashboard() {
                 actions={<Link to="/khata" className="text-sm font-semibold underline">Khata</Link>}
               >
                 {dues.data.count === 0 ? (
-                  <Empty>No customer payment is overdue.</Empty>
+                  dues.data.owing.length ? (
+                    <>
+                      <div className="num pb-2 text-sm">
+                        Customers owe <b>{rupees(dues.data.owingPaise)}</b>
+                      </div>
+                      {dues.data.owing.slice(0, 6).map((c) => (
+                        <div key={c.customerId} className="flex items-center justify-between gap-2 border-t border-line-3 py-2 text-sm">
+                          <span className="min-w-0">
+                            <span className="font-semibold">{c.name}</span>
+                            <span className="block text-[12px] text-ink-3">
+                              oldest bill {c.oldestDays} day{c.oldestDays === 1 ? '' : 's'}
+                              {c.lastReminder ? ` · reminded ${fmtDate(c.lastReminder.slice(0, 10))}` : ''}
+                            </span>
+                          </span>
+                          <span className="flex items-center gap-2">
+                            <span className="num whitespace-nowrap font-bold">{rupees(c.balancePaise)}</span>
+                            {can('payments.receive') && c.phone && <WhatsAppButton customerId={c.customerId} label="" />}
+                          </span>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <Empty>No customer owes anything.</Empty>
+                  )
                 ) : (
                   <>
                     <div className="num pb-2 text-sm">

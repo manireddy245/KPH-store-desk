@@ -18,8 +18,12 @@ beforeAll(async () => {
   counter = await h.loginAs('counter');
   stock = await h.loginAs('stock');
   P = await h.product({ price: 100_000, qty: 1000 });
+  await admin.put('/api/settings', { creditDaysDefault: 30 });
 });
-afterAll(() => h.close());
+afterAll(async () => {
+  await admin.put('/api/settings', { creditDaysDefault: 0 });
+  await h.close();
+});
 
 describe('credit limit', () => {
   it('going over the limit needs the admin PIN, for that customer and amount only', async () => {
@@ -147,5 +151,36 @@ describe('receipts against bills, ageing, overdue', () => {
     expect(r.status).toBe(200);
     const res = await h.server.inject({ method: 'GET', url: `/api/tally/vouchers.xml?from=${today}&to=${today}`, headers: { 'x-device-token': h.deviceToken, authorization: `Bearer ${admin.token}` } });
     expect(res.body).toContain(`<BILLALLOCATIONS.LIST><NAME>${old.number}</NAME><BILLTYPE>Agst Ref</BILLTYPE><AMOUNT>500.00</AMOUNT></BILLALLOCATIONS.LIST>`);
+  });
+});
+
+describe('shop without fixed credit days; old dues kept as a record', () => {
+  it('no credit days: nothing is overdue, bills have no due date', async () => {
+    await admin.put('/api/settings', { creditDaysDefault: 0 });
+    const c = await admin.post('/api/customers', { name: `NoTerms ${h.tag}`, phone: '9555500000' });
+    await createInvoice(h.app, h.ctx('admin'), { customerId: c.body.id, paymentMode: 'credit', lines: [line(1)] }, { at: daysAgo(200) });
+    const d = (await counter.get(`/api/customers/${c.body.id}/dues`)).body;
+    expect(d).toMatchObject({ creditDays: null, overduePaise: 0, balancePaise: 118_000, buckets: [0, 0, 0, 118_000] });
+    expect(d.bills[0].dueDate).toBeNull();
+    const due = (await counter.get('/api/khata/due')).body;
+    expect(due.owing.some((x: { customerId: number }) => x.customerId === c.body.id)).toBe(true);
+    // a customer with their own credit days still gets due dates
+    expect((await admin.patch(`/api/customers/${c.body.id}`, { creditDays: 15 })).status).toBe(200);
+    expect((await counter.get(`/api/customers/${c.body.id}/dues`)).body.overduePaise).toBe(118_000);
+    await admin.put('/api/settings', { creditDaysDefault: 30 });
+  });
+
+  it('old dues on hold: kept in the balance, left out of reminders and the due list', async () => {
+    const c = await admin.post('/api/customers', { name: `OldDues ${h.tag}`, phone: '9555511111' });
+    await createInvoice(h.app, h.ctx('admin'), { customerId: c.body.id, paymentMode: 'credit', lines: [line(2)] }, { at: daysAgo(400) });
+    expect((await counter.patch(`/api/customers/${c.body.id}`, { duesOnHold: true, holdNote: 'not paying since 2025' })).status).toBe(200);
+    const d = (await counter.get(`/api/customers/${c.body.id}/dues`)).body;
+    expect(d).toMatchObject({ onHold: true, holdNote: 'not paying since 2025', balancePaise: 236_000, overduePaise: 0 });
+    const due = (await counter.get('/api/khata/due')).body;
+    expect(due.customers.some((x: { customerId: number }) => x.customerId === c.body.id)).toBe(false);
+    expect(due.owing.some((x: { customerId: number }) => x.customerId === c.body.id)).toBe(false);
+    expect((await counter.post(`/api/customers/${c.body.id}/reminders`, {})).body.code).toBe('ON_HOLD');
+    const a = (await counter.get('/api/khata/ageing')).body;
+    expect(a.totals.onHoldPaise).toBeGreaterThanOrEqual(236_000);
   });
 });
