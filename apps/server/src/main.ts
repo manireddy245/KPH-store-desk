@@ -11,7 +11,13 @@ const config = loadConfig();
 const db = new Workspaces(config);
 
 console.log(`[kph] data folder: ${config.dataDir}`);
-await db.start();
+try {
+  await db.start();
+} catch (e) {
+  console.error(`\n[kph] Could not start the database: ${e instanceof Error ? e.message : String(e ?? 'unknown error')}`);
+  console.error('[kph] If Store Desk was closed suddenly, wait 10 seconds and start it again. If this keeps happening, restart the computer.\n');
+  process.exit(1);
+}
 const app = await buildApp({ db, webDist: config.webDist, logger: true });
 await app.listen({ port: config.port, host: config.host });
 

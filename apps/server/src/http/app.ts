@@ -105,7 +105,8 @@ export async function buildApp(deps: AppDeps) {
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true, workspace: deps.db.name, time: new Date().toISOString() }));
 
   if (deps.webDist && existsSync(deps.webDist)) {
-    await app.register(fastifyStatic, { root: deps.webDist, wildcard: false });
+    // wildcard routing (the default) looks files up on each request, so a rebuilt web app is served without a restart.
+    await app.register(fastifyStatic, { root: deps.webDist });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/')) return reply.status(404).send({ code: 'NOT_FOUND', message: 'Not found' });
       return reply.sendFile('index.html');

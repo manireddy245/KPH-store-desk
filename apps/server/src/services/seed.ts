@@ -1,4 +1,4 @@
-import { ALL_PERMISSIONS } from '@kph/core';
+import { ALL_PERMISSIONS, istDate, istDayRange } from '@kph/core';
 import type { Sql } from '../db/connect.js';
 import { createInvoice, createReceipt, type PaymentMode } from './billing.js';
 import type { Ctx } from './common.js';
@@ -151,7 +151,9 @@ export async function seedSample(sql: Sql) {
   for (let day = 29; day >= 0; day--) {
     const bills = 2 + rnd(5);
     for (let b = 0; b < bills; b++) {
-      const at = new Date(now - day * 86400000 - (8 - b) * 3600000 - rnd(3000) * 1000);
+      // shop hours: first bill around 9:30 am India time, then every hour or so
+      const dayStart = istDayRange(istDate(new Date(now - day * 86400000))).from.getTime();
+      const at = new Date(dayStart + 9.5 * 3600000 + b * 75 * 60000 + rnd(40) * 60000);
       if (at.getTime() > now) continue;
       const lines = Array.from({ length: 1 + rnd(3) }, () => {
         const idx = rnd(productIds.length - 1); // never the padlock (out of stock)
@@ -169,7 +171,8 @@ export async function seedSample(sql: Sql) {
       }
     }
     if (day % 6 === 0) {
-      await createReceipt(sql, counter, { customerId: customerIds[0]!, mode: 'upi', amountPaise: 1500000, reference: 'Sample UPI' }, { at: new Date(now - day * 86400000) });
+      const receiptAt = istDayRange(istDate(new Date(now - day * 86400000))).from.getTime() + 11 * 3600000;
+      if (receiptAt <= now) await createReceipt(sql, counter, { customerId: customerIds[0]!, mode: 'upi', amountPaise: 1500000, reference: 'Sample UPI' }, { at: new Date(receiptAt) });
     }
   }
 }
