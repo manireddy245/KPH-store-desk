@@ -34,6 +34,15 @@ export interface StoreSettings {
   oldStockDays: number;
   quoteValidDays: number;
   /** Stock insights: sales period looked at, days without a sale for "dead", default target days and supplier lead time. */
+  /** Second backup location (USB drive, another PC's shared folder, or a Google Drive / OneDrive folder). */
+  backupCopyDir: string;
+  /** Passphrase that encrypts the copies. Never backed up or shown. */
+  backupPassphrase: string;
+  /** Hour (India time) when the shop closes: the daily summary is made then. */
+  shopCloseHour: number;
+  /** Owner's WhatsApp number and e-mail for the daily summary (optional). */
+  ownerPhone: string;
+  ownerEmail: string;
   insightDays: number;
   deadStockDays: number;
   targetDaysDefault: number;
@@ -90,6 +99,11 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   challanPrefix: 'DC',
   oldStockDays: 60,
   quoteValidDays: 15,
+  backupCopyDir: '',
+  backupPassphrase: '',
+  shopCloseHour: 20,
+  ownerPhone: '',
+  ownerEmail: '',
   insightDays: 30,
   deadStockDays: 60,
   targetDaysDefault: 15,
@@ -110,7 +124,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
 };
 
 /** Never included in backups or sent to non-admin screens. */
-export const SECRET_SETTINGS: (keyof StoreSettings)[] = ['geminiApiKey'];
+export const SECRET_SETTINGS: (keyof StoreSettings)[] = ['geminiApiKey', 'backupPassphrase'];
 
 export async function getSettings(q: Q): Promise<StoreSettings> {
   const rows = await q<{ key: string; value: unknown }[]>`select key, value from settings`;
@@ -129,6 +143,6 @@ export async function setSettings(q: Q, patch: Partial<StoreSettings>) {
 }
 
 export function publicSettings(s: StoreSettings) {
-  const { geminiApiKey, ...rest } = s;
-  return { ...rest, geminiApiKeySet: !!geminiApiKey };
+  const { geminiApiKey, backupPassphrase, ...rest } = s;
+  return { ...rest, geminiApiKeySet: !!geminiApiKey, backupPassphraseSet: !!backupPassphrase };
 }

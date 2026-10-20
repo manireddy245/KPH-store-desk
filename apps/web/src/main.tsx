@@ -22,6 +22,7 @@ import { Partners } from './pages/Partners';
 import { Operations } from './pages/Operations';
 import { ChallanPrint, PurchaseOrderPrint, QuotePrint } from './pages/OpsPrint';
 import { Stock } from './pages/Stock';
+import { Owner } from './pages/Owner';
 import { StatementPrint } from './pages/StatementPrint';
 import { Inventory } from './pages/Inventory';
 import { Customers } from './pages/Customers';
@@ -43,7 +44,9 @@ const queryClient = new QueryClient({
 function App() {
   const { phase, can } = useSession();
   if (phase !== 'ready') return <Gate />;
-  const home = can('billing.create') ? '/billing' : can('reports.view') ? '/dashboard' : can('stock.adjust') ? '/purchases' : '/dashboard';
+  // the owner on a phone starts on the Owner screen
+  const phone = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
+  const home = phone && can('reports.view') ? '/owner' : can('billing.create') ? '/billing' : can('reports.view') ? '/dashboard' : can('stock.adjust') ? '/purchases' : '/dashboard';
   return (
     <OverrideProvider>
       <Routes>
@@ -66,6 +69,7 @@ function App() {
           <Route path="/partners" element={<Partners />} />
           <Route path="/operations" element={<Operations />} />
           <Route path="/stock" element={<Stock />} />
+          <Route path="/owner" element={<Owner />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/suppliers" element={<Suppliers />} />

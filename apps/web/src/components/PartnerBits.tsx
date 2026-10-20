@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { get, qs } from '../lib/api';
 import { Select, useDebounced } from './ui';
+import { useT } from '../lib/i18n';
 
 export interface PartnerPick {
   id: number;
@@ -33,6 +34,7 @@ export function PartnerPicker({ partner, siteId, onChange }: { partner: PartnerP
   const [q, setQ] = useState('');
   const dq = useDebounced(q, 200);
   const results = useQuery({ queryKey: ['partners', 'search', dq], queryFn: () => get<PartnerRow[]>(`/api/partners${qs({ search: dq })}`), enabled: dq.trim().length >= 2 });
+  const t = useT();
   const sites = useQuery({
     queryKey: ['partners', 'sites', partner?.id],
     queryFn: async () => (await get<{ sites: { id: number; name: string; active: boolean }[] }>(`/api/partners/${partner!.id}`)).sites.filter((s) => s.active),
@@ -42,7 +44,7 @@ export function PartnerPicker({ partner, siteId, onChange }: { partner: PartnerP
   return (
     <div className="flex flex-col gap-2 rounded-[6px] border border-line bg-white px-4 py-3">
       <div className="flex items-center justify-between">
-        <span className="eyebrow">Brought by (painter, mason…)</span>
+        <span className="eyebrow">{t('Brought by (painter, mason…)')}</span>
         {partner && (
           <button type="button" onClick={() => onChange(null, null)} className="h-[28px] rounded-[6px] border border-line-2 px-2 text-[12px] font-semibold hover:bg-paper">
             Remove

@@ -64,7 +64,11 @@ export async function dashboard(q: Q, ctx: Ctx) {
     : [];
 
   const [lastBackup] = can(ctx, 'settings.manage')
-    ? await q`select at, ok, kind, error from backups_log order by id desc limit 1`
+    ? await q`select at, ok, kind, error from backups_log where kind <> 'copy' order by id desc limit 1`
+    : [];
+
+  const [lastCopy] = can(ctx, 'settings.manage')
+    ? await q`select at, ok, error, location from backups_log where kind = 'copy' order by id desc limit 1`
     : [];
 
   const [stockMismatch] = await q`
@@ -82,6 +86,8 @@ export async function dashboard(q: Q, ctx: Ctx) {
     recent,
     alerts,
     lastBackup: lastBackup ?? null,
+    lastCopy: lastCopy ?? null,
+    copyConfigured: !!(s.backupCopyDir && s.backupPassphrase),
     stockMismatchCount: stockMismatch?.n ?? 0,
   };
 }

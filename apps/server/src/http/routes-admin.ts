@@ -1,8 +1,9 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { listBackupFiles, readBackup, restoreBackupData, writeBackup } from '../services/backup.js';
+import { backupStatus, copyBackup, decryptBackup, isEncrypted, listCopies } from '../services/backupcopy.js';
 import { AppError, audit, requirePerm } from '../services/common.js';
 import { FIELDS, analyse, applyImport, guessMapping, parseUpload, type ImportKind } from '../services/import.js';
 import { getSettings, publicSettings, setSettings } from '../services/settings.js';
@@ -64,11 +65,33 @@ export async function registerAdminRoutes(app: FastifyInstance, { db, live }: Sh
         salesPriceMode: z.enum(['excl', 'incl']),
         purchasePriceMode: z.enum(['excl', 'incl']),
         invoiceLabels: z.enum(['en', 'te-en']),
+        backupCopyDir: z.string().max(400),
+        backupPassphrase: z.string().refine((v) => v === '' || v.length >= 8, 'The passphrase must be at least 8 characters'),
+        shopCloseHour: z.number().int().min(0).max(23),
+        ownerPhone: z.string().max(20),
+        ownerEmail: z.string().max(100).refine((v) => v === '' || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v), 'E-mail looks wrong'),
+        insightDays: z.number().int().min(7).max(180),
+        deadStockDays: z.number().int().min(15).max(365),
+        targetDaysDefault: z.number().int().min(1).max(180),
+        leadDaysDefault: z.number().int().min(0).max(60),
+        oldStockDays: z.number().int().min(7).max(365),
+        quoteValidDays: z.number().int().min(1).max(180),
       })
       .partial()
       .parse(req.body);
+    if (b.backupCopyDir) {
+      // make sure the second location can be written to before saving it
+      try {
+        mkdirSync(b.backupCopyDir, { recursive: true });
+        const probe = join(b.backupCopyDir, '.storedesk-write-test');
+        writeFileSync(probe, 'ok');
+        unlinkSync(probe);
+      } catch (e) {
+        throw new AppError(400, 'COPY_DIR', `Can't write to "${b.backupCopyDir}": ${(e as Error).message}. Check the drive is plugged in / the folder is shared.`);
+      }
+    }
     await setSettings(db.app, b);
-    const logged = { ...b, geminiApiKey: b.geminiApiKey === undefined ? undefined : '(changed)' };
+    const logged = { ...b, geminiApiKey: b.geminiApiKey === undefined ? undefined : '(changed)', backupPassphrase: b.backupPassphrase === undefined ? undefined : '(changed)' };
     await audit(db.app, ctx, 'settings.changed', { details: logged });
     live.broadcast({ type: 'settings.changed' });
     return publicSettings(await getSettings(db.app));
@@ -179,7 +202,23 @@ export async function registerAdminRoutes(app: FastifyInstance, { db, live }: Sh
     requirePerm(ctx, 'settings.manage');
     const r = await writeBackup(db.owner, db.name, db.backupDir, 'manual');
     await audit(db.app, ctx, 'backup.created', { details: { file: r.file, sizeBytes: r.sizeBytes } });
-    return r;
+    // also copy it to the second location, if one is set
+    const s = await getSettings(db.app);
+    let copy: { file: string } | { error: string } | null = null;
+    if (s.backupCopyDir && s.backupPassphrase) {
+      try {
+        copy = await copyBackup(db.owner, { sourceDir: db.backupDir, file: r.file, copyDir: s.backupCopyDir, passphrase: s.backupPassphrase });
+      } catch (e) {
+        copy = { error: (e as Error).message };
+      }
+    }
+    return { ...r, copy };
+  });
+
+  app.get('/api/backups/status', async (req) => {
+    requirePerm(ctxOf(req), 'settings.manage');
+    const s = await getSettings(db.app);
+    return { ...(await backupStatus(db.owner, s.backupCopyDir, !!s.backupPassphrase)), copies: s.backupCopyDir ? listCopies(s.backupCopyDir).slice(0, 30) : [] };
   });
 
   app.get('/api/backups/download/:file', async (req, reply) => {
@@ -194,11 +233,16 @@ export async function registerAdminRoutes(app: FastifyInstance, { db, live }: Sh
   app.post('/api/backups/restore', async (req) => {
     const ctx = ctxOf(req);
     requirePerm(ctx, 'settings.manage');
-    const b = z.object({ base64: z.string().optional(), file: z.string().optional(), confirm: z.literal('RESTORE') }).parse(req.body);
-    const buf = b.base64 ? Buffer.from(b.base64, 'base64') : b.file ? readFileSync(join(db.backupDir, basename(b.file))) : null;
+    const b = z.object({ base64: z.string().optional(), file: z.string().optional(), passphrase: z.string().optional(), confirm: z.literal('RESTORE') }).parse(req.body);
+    let buf: Buffer | null = b.base64 ? Buffer.from(b.base64, 'base64') : b.file ? readFileSync(join(db.backupDir, basename(b.file))) : null;
     if (!buf) throw new AppError(400, 'NO_FILE', 'Choose a backup file');
     let data;
     try {
+      if (isEncrypted(buf)) {
+        const pass = b.passphrase || (await getSettings(db.app)).backupPassphrase;
+        if (!pass) throw new Error('This copy is encrypted: type the backup passphrase');
+        buf = decryptBackup(buf, pass);
+      }
       data = readBackup(buf);
     } catch (e) {
       throw new AppError(400, 'BAD_BACKUP', (e as Error).message);

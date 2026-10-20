@@ -74,6 +74,15 @@ interface StoreSettingsDto {
   geminiApiKeySet: boolean;
   geminiModel: string;
   purchasePrefix: string;
+  ownerPhone: string;
+  ownerEmail: string;
+  shopCloseHour: number;
+  insightDays: number;
+  deadStockDays: number;
+  targetDaysDefault: number;
+  leadDaysDefault: number;
+  oldStockDays: number;
+  quoteValidDays: number;
 }
 
 function StoreSettings() {
@@ -111,6 +120,15 @@ function StoreSettings() {
       backupHour: String(s.autoBackupHour),
       geminiModel: s.geminiModel,
       purchasePrefix: s.purchasePrefix,
+      ownerPhone: s.ownerPhone,
+      ownerEmail: s.ownerEmail,
+      shopCloseHour: String(s.shopCloseHour),
+      insightDays: String(s.insightDays),
+      deadStockDays: String(s.deadStockDays),
+      targetDaysDefault: String(s.targetDaysDefault),
+      leadDaysDefault: String(s.leadDaysDefault),
+      oldStockDays: String(s.oldStockDays),
+      quoteValidDays: String(s.quoteValidDays),
     });
   }, [q.data]);
   const t = (k: string) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
@@ -143,6 +161,15 @@ function StoreSettings() {
         autoBackupHour: Number(f.backupHour),
         geminiModel: String(f.geminiModel).trim(),
         purchasePrefix: String(f.purchasePrefix).toUpperCase().trim(),
+        ownerPhone: String(f.ownerPhone ?? '').trim(),
+        ownerEmail: String(f.ownerEmail ?? '').trim(),
+        shopCloseHour: Number(f.shopCloseHour),
+        insightDays: Number(f.insightDays),
+        deadStockDays: Number(f.deadStockDays),
+        targetDaysDefault: Number(f.targetDaysDefault),
+        leadDaysDefault: Number(f.leadDaysDefault),
+        oldStockDays: Number(f.oldStockDays),
+        quoteValidDays: Number(f.quoteValidDays),
         ...(key ? { geminiApiKey: key } : {}),
       });
       setKey('');
@@ -233,6 +260,41 @@ function StoreSettings() {
           </Field>
           <Field label="Gemini API key (invoice scanner and assistant)" hint={q.data.geminiApiKeySet ? 'A key is saved. Type a new one to replace it.' : 'Not set. Kept on this server only; never included in backups.'} className="sm:col-span-2">
             <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
+          </Field>
+        </div>
+      </Card>
+      <Card title="Owner & daily summary">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Owner's WhatsApp number" hint="The daily summary opens WhatsApp to this number">
+            <Input value={String(f.ownerPhone ?? '')} onChange={t('ownerPhone')} inputMode="tel" />
+          </Field>
+          <Field label="Owner's e-mail (optional)">
+            <Input value={String(f.ownerEmail ?? '')} onChange={t('ownerEmail')} inputMode="email" />
+          </Field>
+          <Field label="Shop closes at (hour, 0–23)" hint="The day's summary is made after this hour">
+            <Input value={String(f.shopCloseHour ?? '')} onChange={t('shopCloseHour')} inputMode="numeric" />
+          </Field>
+          <Field label="Quotation valid for (days)">
+            <Input value={String(f.quoteValidDays ?? '')} onChange={t('quoteValidDays')} inputMode="numeric" />
+          </Field>
+        </div>
+      </Card>
+      <Card title="Stock advice">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Look back (days of sales)" hint="Fast / slow and daily sale are worked out from this many days">
+            <Input value={String(f.insightDays ?? '')} onChange={t('insightDays')} inputMode="numeric" />
+          </Field>
+          <Field label="Dead stock after (days unsold)">
+            <Input value={String(f.deadStockDays ?? '')} onChange={t('deadStockDays')} inputMode="numeric" />
+          </Field>
+          <Field label="Order enough for (days)" hint="Default for products without their own">
+            <Input value={String(f.targetDaysDefault ?? '')} onChange={t('targetDaysDefault')} inputMode="numeric" />
+          </Field>
+          <Field label="Supplier takes (days to deliver)">
+            <Input value={String(f.leadDaysDefault ?? '')} onChange={t('leadDaysDefault')} inputMode="numeric" />
+          </Field>
+          <Field label="Cement / batch is old after (days)">
+            <Input value={String(f.oldStockDays ?? '')} onChange={t('oldStockDays')} inputMode="numeric" />
           </Field>
         </div>
       </Card>
@@ -1045,13 +1107,15 @@ function DataBackups() {
   const q = useQuery({ queryKey: ['backups'], queryFn: () => get<{ dir: string; files: { file: string; sizeBytes: number; at: string }[]; log: { id: number; at: string; kind: string; file: string; ok: boolean; error: string | null }[] }>('/api/backups') });
   const [busy, setBusy] = useState<string | null>(null);
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [restorePass, setRestorePass] = useState('');
   const [confirm, setConfirm] = useState<'restore' | 'live' | 'sample' | 'reset' | null>(null);
 
   const backupNow = async () => {
     setBusy('backup');
     try {
-      const r = await post<{ file: string }>('/api/backups/run');
-      toast({ tone: 'good', text: `Backup saved: ${r.file}` });
+      const r = await post<{ file: string; copy: { file: string } | { error: string } | null }>('/api/backups/run');
+      toast({ tone: r.copy && 'error' in r.copy ? 'bad' : 'good', text: `Backup saved: ${r.file}${r.copy ? ('error' in r.copy ? ` — but the second copy failed: ${r.copy.error}` : ' — and copied (encrypted) to the second place') : ''}` });
+      await qc.invalidateQueries({ queryKey: ['backup-status'] });
       await qc.invalidateQueries({ queryKey: ['backups'] });
     } catch (e) {
       toast({ tone: 'bad', text: err(e) });
@@ -1073,7 +1137,7 @@ function DataBackups() {
     if (!restoreFile) return;
     setBusy('restore');
     try {
-      const r = await post<{ safetyBackup: string }>('/api/backups/restore', { base64: await fileToBase64(restoreFile), confirm: 'RESTORE' });
+      const r = await post<{ safetyBackup: string }>('/api/backups/restore', { base64: await fileToBase64(restoreFile), passphrase: restorePass || undefined, confirm: 'RESTORE' });
       toast({ tone: 'good', text: `Restored. A copy of the data before restoring was saved as ${r.safetyBackup}.` });
       setTimeout(() => location.reload(), 1500);
     } catch (e) {
@@ -1111,8 +1175,7 @@ function DataBackups() {
     <div className="grid gap-4 lg:grid-cols-2">
       <Card title="Backups" actions={<Button variant="primary" busy={busy === 'backup'} onClick={backupNow}>Back up now</Button>}>
         <p className="mb-3 text-sm text-ink-3">
-          A backup is made automatically every day. The last 30 automatic backups are kept in <span className="font-mono text-xs">{q.data?.dir}</span>. Encrypted copies to a second place
-          (another PC, USB or Google Drive) come in Phase 7. The Gemini key is never included.
+          A backup is made automatically every day. The last 30 automatic backups are kept in <span className="font-mono text-xs">{q.data?.dir}</span>, and an encrypted copy goes to the second place below. The Gemini key and the backup passphrase are never included.
         </p>
         <div className="-mx-4 -mb-4 max-h-80 overflow-auto">
           <Table
@@ -1149,7 +1212,12 @@ function DataBackups() {
           <Notice tone="warn">
             Restoring replaces <b>all</b> data in the {sample ? 'sample' : 'real'} workspace with the backup. A safety copy of the current data is saved first. Everyone is logged out.
           </Notice>
-          <input type="file" accept=".gz,.json" onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)} className="text-sm file:mr-3 file:h-10 file:rounded-[6px] file:border file:border-line-2 file:bg-white file:px-3 file:font-semibold" />
+          <input type="file" accept=".gz,.json,.enc" onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)} className="text-sm file:mr-3 file:h-10 file:rounded-[6px] file:border file:border-line-2 file:bg-white file:px-3 file:font-semibold" />
+          {restoreFile?.name.endsWith('.enc') && (
+            <Field label="Backup passphrase (blank = the one saved on this computer)">
+              <Input type="password" value={restorePass} onChange={(e) => setRestorePass(e.target.value)} autoComplete="off" />
+            </Field>
+          )}
           <div>
             <Button variant="dark" disabled={!restoreFile} onClick={() => setConfirm('restore')}>
               Restore…
@@ -1157,6 +1225,8 @@ function DataBackups() {
           </div>
         </div>
       </Card>
+
+      <SecondCopy />
 
       <Card title="Sample data and real data" className="lg:col-span-2">
         <div className="flex flex-col gap-3 text-sm">
@@ -1197,5 +1267,98 @@ function DataBackups() {
         <p>The sample books are wiped and reloaded with fresh sample products, customers and bills. Real data is never touched.</p>
       </ConfirmTyped>
     </div>
+  );
+}
+
+/** The encrypted second copy of every backup: USB drive, another PC's shared folder, or a Google Drive / OneDrive folder. */
+function SecondCopy() {
+  const toast = useToast();
+  const st = useQuery({
+    queryKey: ['backup-status'],
+    queryFn: () => get<{ configured: boolean; copyDir: string; passphraseSet: boolean; copiesKept: number; copy: { at: string; ok: boolean; error: string | null; file: string } | null; copies: { file: string; sizeBytes: number; at: string }[] }>('/api/backups/status'),
+  });
+  const [dir, setDir] = useState('');
+  const [pass, setPass] = useState('');
+  const [pass2, setPass2] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (st.data) setDir(st.data.copyDir);
+  }, [st.data]);
+  const save = async () => {
+    if (pass && pass !== pass2) return toast({ tone: 'bad', text: 'The two passphrases are not the same' });
+    setBusy(true);
+    try {
+      await put('/api/settings', { backupCopyDir: dir.trim(), ...(pass ? { backupPassphrase: pass } : {}) });
+      toast({ tone: 'good', text: 'Saved. Press "Back up now" to make the first copy and check it.' });
+      setPass('');
+      setPass2('');
+      void st.refetch();
+    } catch (e) {
+      toast({ tone: 'bad', text: err(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const d = st.data;
+  return (
+    <Card title="Second copy (encrypted)" className="lg:col-span-2">
+      <div className="grid gap-4 text-sm lg:grid-cols-2">
+        <div className="flex flex-col gap-3">
+          <p className="text-ink-3">
+            Every backup is also copied, encrypted, to a second place — so a broken or stolen server PC doesn't lose the books. Use a folder on a <b>USB drive</b>, a <b>shared folder on another PC</b>, or a <b>Google Drive / OneDrive folder</b> on this PC (it syncs to the cloud by itself). The copy is opened and checked every time. The last 30 are kept.
+          </p>
+          <Field label="Folder for the second copy" hint={'e.g. E:\\StoreDesk backups, \\\\OFFICE-PC\\Backups or C:\\Users\\you\\Google Drive\\StoreDesk'}>
+            <Input value={dir} onChange={(e) => setDir(e.target.value)} className="font-mono text-xs" />
+          </Field>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label={d?.passphraseSet ? 'New passphrase (leave blank to keep)' : 'Passphrase (at least 8 characters)'}>
+              <Input type="password" value={pass} onChange={(e) => setPass(e.target.value)} autoComplete="new-password" />
+            </Field>
+            <Field label="Type it again">
+              <Input type="password" value={pass2} onChange={(e) => setPass2(e.target.value)} autoComplete="new-password" />
+            </Field>
+          </div>
+          <Notice tone="warn">Write the passphrase down and keep it at home. Without it the copies can't be opened — by anyone.</Notice>
+          <div>
+            <Button variant="primary" busy={busy} onClick={() => void save()}>
+              Save
+            </Button>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          {!d ? (
+            <Spinner />
+          ) : !d.configured ? (
+            <Notice tone="warn">Not set up yet: choose the folder and a passphrase.</Notice>
+          ) : d.copy?.ok ? (
+            <Notice tone="good">
+              Last copy OK — {fmtDateTime(d.copy.at)} · {d.copiesKept} kept in {d.copyDir}
+            </Notice>
+          ) : d.copy ? (
+            <Notice tone="bad">
+              Last copy failed — {fmtDateTime(d.copy.at)}: {d.copy.error}
+            </Notice>
+          ) : (
+            <Notice tone="teal">Set up. The first copy is made with the next backup.</Notice>
+          )}
+          {(d?.copies.length ?? 0) > 0 && (
+            <div className="max-h-56 overflow-auto rounded-[6px] border border-line">
+              <Table minWidth={360} head={<tr><th>Encrypted copy</th><th className="text-right">Size</th></tr>}>
+                {d!.copies.map((c) => (
+                  <tr key={c.file}>
+                    <td>
+                      <div className="font-mono text-xs">{c.file}</div>
+                      <div className="text-xs text-ink-3">{fmtDateTime(c.at)}</div>
+                    </td>
+                    <td className="num text-right">{Math.max(1, Math.round(c.sizeBytes / 1024))} KB</td>
+                  </tr>
+                ))}
+              </Table>
+            </div>
+          )}
+          <p className="text-[12px] text-ink-3">To restore from a copy: “Restore from a backup” → choose the .enc file → type the passphrase.</p>
+        </div>
+      </div>
+    </Card>
   );
 }

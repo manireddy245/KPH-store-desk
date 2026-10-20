@@ -4,6 +4,8 @@ import { loadConfig } from './config.js';
 import { Workspaces } from './db/workspace.js';
 import { buildApp } from './http/app.js';
 import { writeBackup } from './services/backup.js';
+import { copyBackup } from './services/backupcopy.js';
+import { makeDailySummary } from './services/owner.js';
 import { reconcileStock } from './services/products.js';
 import { getSettings } from './services/settings.js';
 
@@ -45,6 +47,20 @@ async function dailyJobs() {
     if (stale || (!doneToday && hourIst >= s.autoBackupHour)) {
       const r = await writeBackup(db.owner, db.name, db.backupDir, 'auto');
       console.log(`[backup] ${r.file} (${Math.round(r.sizeBytes / 1024)} KB)`);
+      if (s.backupCopyDir && s.backupPassphrase) {
+        try {
+          const c = await copyBackup(db.owner, { sourceDir: db.backupDir, file: r.file, copyDir: s.backupCopyDir, passphrase: s.backupPassphrase });
+          console.log(`[backup] encrypted copy → ${s.backupCopyDir} (${c.rows} rows checked)`);
+        } catch (e) {
+          console.error('[backup] copy to the second location failed:', (e as Error).message);
+        }
+      }
+    }
+    // the owner's daily summary, at closing time
+    const [made] = await db.app<{ d: string }[]>`select summary_date::text as d from daily_summaries where summary_date = ${istDate()}`;
+    if (!made && hourIst >= s.shopCloseHour) {
+      await makeDailySummary(db.app, istDate());
+      console.log('[summary] daily summary made');
     }
     const mismatches = await reconcileStock(db.app);
     if (mismatches.length) console.error('[stock] balance does not match stock ledger for', mismatches);

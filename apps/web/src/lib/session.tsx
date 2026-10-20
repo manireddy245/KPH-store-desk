@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Permission } from '@kph/core';
-import { ApiError, get, onAuthError, post, store } from './api';
+import { ApiError, api, get, onAuthError, post, store } from './api';
 
 export interface Tile {
   id: number;
@@ -45,6 +45,8 @@ interface Ctx {
   lock: () => Promise<void>;
   setDeviceToken: (t: string) => void;
   setSession: (token: string, user: SessionUser) => void;
+  /** Switch this person's screens between English and Telugu (saved for them). */
+  setLanguage: (lang: 'en' | 'te') => Promise<void>;
 }
 
 const SessionCtx = createContext<Ctx>(null as unknown as Ctx);
@@ -221,6 +223,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       lock,
       setDeviceToken: (t) => (store.deviceToken = t),
       setSession,
+      setLanguage: async (lang) => {
+        if (!user) return;
+        await api('PATCH', `/api/users/${user.userId}`, { language: lang });
+        setUser({ ...user, language: lang });
+      },
     }),
     [phase, boot, user, lastUserId, reload, loginWith, lock, setSession],
   );

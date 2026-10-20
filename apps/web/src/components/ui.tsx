@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 export { cx };
+import { useLang } from '../lib/i18n';
 
 // ---------------------------------------------------------------- logo
 
@@ -129,11 +130,13 @@ export function Card({ children, className, title, actions }: { children: ReactN
 }
 
 export function PageTitle({ title, telugu, actions, sub }: { title: string; telugu?: string; actions?: ReactNode; sub?: ReactNode }) {
+  // Telugu screens: the Telugu name is the main title, English underneath.
+  const te = useLang() === 'te' && !!telugu;
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div className="flex flex-col gap-1">
-        {telugu && <span className="telugu text-[15px] font-semibold text-brick">{telugu}</span>}
-        <h1 className="headline text-[34px] sm:text-[38px]">{title}</h1>
+        {te ? <span className="text-[13px] font-bold uppercase tracking-[.14em] text-brick">{title}</span> : telugu && <span className="telugu text-[15px] font-semibold text-brick">{telugu}</span>}
+        <h1 className={te ? 'telugu text-[32px] font-bold leading-tight sm:text-[36px]' : 'headline text-[34px] sm:text-[38px]'}>{te ? telugu : title}</h1>
         {sub && <div className="text-sm text-ink-3">{sub}</div>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}

@@ -30,6 +30,8 @@ interface Dash {
   recent: { id: number; number: string; at: string; customer_name: string | null; payment_mode: string; total_paise: number; status: string; user_name: string; device_name: string | null }[];
   alerts: { id: number; at: string; action: string; details: Record<string, any>; reason: string | null; user_name: string | null; device_name: string | null; approved_by_name: string | null }[];
   lastBackup: { at: string; ok: boolean; kind: string; error: string | null } | null;
+  lastCopy: { at: string; ok: boolean; error: string | null } | null;
+  copyConfigured: boolean;
   stockMismatchCount: number;
 }
 
@@ -109,6 +111,18 @@ export function Dashboard() {
                   ) : (
                     <Notice tone="warn">No backup has been made yet. Go to Settings → Data &amp; backups.</Notice>
                   ))}
+                {can('settings.manage') &&
+                  (!d.copyConfigured ? (
+                    <Notice tone="warn">
+                      Backups stay only on this PC. <Link to="/settings/data" className="underline">Set up the second copy</Link> (USB, another PC or Google Drive).
+                    </Notice>
+                  ) : d.lastCopy && !d.lastCopy.ok ? (
+                    <Notice tone="bad">
+                      <b>Second copy failed</b> — {fmtDateTime(d.lastCopy.at)}: {d.lastCopy.error}
+                    </Notice>
+                  ) : d.lastCopy ? (
+                    <div className="text-[13px] text-ink-3">Second copy OK — {fmtDateTime(d.lastCopy.at)}</div>
+                  ) : null)}
                 {d.alerts.map((a) => (
                   <Alert key={a.id} a={a} />
                 ))}

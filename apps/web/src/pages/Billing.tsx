@@ -27,6 +27,7 @@ import { useOverride } from '../lib/override';
 import { useSession } from '../lib/session';
 import type { AssistantBillCard, CustomerRow, ProductRow } from '../lib/types';
 import { PartnerPicker, type PartnerPick } from '../components/PartnerBits';
+import { useT } from '../lib/i18n';
 import { Button, Field, Input, Kbd, Modal, Notice, cx, useDebounced, useToast } from '../components/ui';
 
 type Mode = 'cash' | 'upi' | 'card' | 'credit';
@@ -75,6 +76,7 @@ function unitFor(p: ProductRow, code: string | null | undefined) {
 
 export function Billing() {
   const { boot, user, can } = useSession();
+  const t = useT();
   const toast = useToast();
   const askOverride = useOverride();
   const draftKey = `kph.draft.${store.workspace}.${boot?.device?.id}.${user?.userId}`;
@@ -419,7 +421,7 @@ export function Billing() {
               id="search"
               ref={searchRef}
               autoComplete="off"
-              placeholder={products.isLoading ? 'Loading products…' : 'Type product name, SKU or brand…'}
+              placeholder={products.isLoading ? 'Loading products…' : t('Type product name, SKU or brand…')}
               value={q}
               onFocus={() => setSearchFocused(true)}
               onBlur={() => setSearchFocused(false)}
@@ -675,14 +677,14 @@ export function Billing() {
       <aside aria-label="Bill summary" className="flex w-full flex-[1_1_340px] flex-col gap-3 md:max-w-[400px]">
         <div className="flex flex-col gap-2.5 rounded-[6px] border border-line bg-white px-4 py-3.5">
           <div className="flex items-center justify-between">
-            <span className="eyebrow">Customer</span>
+            <span className="eyebrow">{t('Customer')}</span>
             {draft.customer ? (
               <button type="button" onClick={() => setDraft((d) => ({ ...d, customer: null }))} className="h-[30px] rounded-[6px] border border-line-2 px-2.5 text-[13px] font-semibold hover:bg-paper">
                 Change <Kbd>F4</Kbd>
               </button>
             ) : (
               <button type="button" onClick={() => setAddCustomerOpen(true)} className="h-[30px] rounded-[6px] border border-line-2 px-2.5 text-[13px] font-semibold hover:bg-paper">
-                + New customer
+                {t('+ New customer')}
               </button>
             )}
           </div>
@@ -694,11 +696,11 @@ export function Billing() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className={cx('rounded-[4px] px-2.5 py-2', draft.customer.balance_paise > 0 ? 'bg-warn-soft text-warn-ink' : 'bg-concrete')}>
-                  <div className="text-[11px]">Balance due</div>
+                  <div className="text-[11px]">{t('Balance due')}</div>
                   <div className="num text-[15px] font-extrabold">₹{formatPaise(draft.customer.balance_paise)}</div>
                 </div>
                 <div className="rounded-[4px] bg-concrete px-2.5 py-2">
-                  <div className="text-[11px] text-ink-3">Credit limit</div>
+                  <div className="text-[11px] text-ink-3">{t('Credit limit')}</div>
                   <div className="num text-[15px] font-bold">{draft.customer.credit_limit_paise != null ? `₹${formatPaise(draft.customer.credit_limit_paise)}` : 'Not set'}</div>
                 </div>
               </div>
@@ -752,7 +754,7 @@ export function Billing() {
         <PartnerPicker partner={draft.partner ?? null} siteId={draft.siteId ?? null} onChange={(partner, siteId) => setDraft((d) => ({ ...d, partner, siteId }))} />
 
         <div className="flex flex-col gap-2.5 rounded-[6px] border border-line bg-white px-4 py-3.5">
-          <span className="eyebrow">Payment</span>
+          <span className="eyebrow">{t('Payment')}</span>
           <div role="radiogroup" aria-label="Payment mode" className="grid grid-cols-4 gap-1.5">
             {MODES.map((m, i) => (
               <button
@@ -764,14 +766,14 @@ export function Billing() {
                 onClick={() => setDraft((d) => ({ ...d, mode: m }))}
                 className={cx('h-11 rounded-[6px] text-sm', draft.mode === m ? 'border-2 border-teal bg-teal font-bold text-white' : 'border border-line-2 bg-white font-semibold hover:bg-paper')}
               >
-                {MODE_LABEL[m]}
+                {t(MODE_LABEL[m]!)}
               </button>
             ))}
           </div>
           {creditProblem && <div className="text-xs text-bad">Choose a customer for a credit bill.</div>}
           <label className="mt-1 flex items-center justify-between gap-2 text-xs text-ink-3">
             <span>
-              Place of supply {supply === 'inter' && <b className="text-teal">· IGST</b>}
+              {t('Place of supply')} {supply === 'inter' && <b className="text-teal">· IGST</b>}
             </span>
             <select
               aria-label="Place of supply"
@@ -796,9 +798,9 @@ export function Billing() {
         </div>
 
         <div className="num flex flex-col gap-1.5 rounded-[6px] border border-line bg-white px-4 py-3.5 text-sm">
-          <Row label="Gross" value={`₹${formatPaise(totals.grossPaise)}`} />
-          <Row label="Discount" value={totals.discountPaise ? `− ₹${formatPaise(totals.discountPaise)}` : '₹0.00'} />
-          <Row label="Taxable value" value={`₹${formatPaise(totals.taxablePaise)}`} />
+          <Row label={t('Gross')} value={`₹${formatPaise(totals.grossPaise)}`} />
+          <Row label={t('Discount')} value={totals.discountPaise ? `− ₹${formatPaise(totals.discountPaise)}` : '₹0.00'} />
+          <Row label={t('Taxable value')} value={`₹${formatPaise(totals.taxablePaise)}`} />
           {supply === 'intra' ? (
             <>
               <Row label="CGST" value={`₹${formatPaise(totals.cgstPaise)}`} />
@@ -807,10 +809,10 @@ export function Billing() {
           ) : (
             <Row label="IGST" value={`₹${formatPaise(totals.igstPaise)}`} />
           )}
-          <Row label="Round off" value={`${totals.roundOffPaise < 0 ? '− ' : ''}₹${formatPaise(Math.abs(totals.roundOffPaise))}`} />
+          <Row label={t('Round off')} value={`${totals.roundOffPaise < 0 ? '− ' : ''}₹${formatPaise(Math.abs(totals.roundOffPaise))}`} />
           <div className="my-1.5 h-px bg-line" />
           <div className="flex items-baseline justify-between">
-            <span className="headline text-[15px] tracking-[.04em]">Total</span>
+            <span className="headline text-[15px] tracking-[.04em]">{t('Total')}</span>
             <span className="text-[38px] font-extrabold" style={{ fontStretch: '80%' }}>
               ₹{formatPaise(totals.totalPaise)}
             </span>
@@ -824,11 +826,11 @@ export function Billing() {
         {invalidLine >= 0 && <Notice tone="bad">Line {invalidLine + 1} has a quantity, rate or discount that isn’t a valid number.</Notice>}
 
         <Button variant="primary" size="lg" disabled={!canSave} busy={saving} onClick={() => void save(true)} className="h-14 text-lg font-extrabold tracking-[.04em]">
-          SAVE &amp; PRINT <span className="kbd !border-white/70 !bg-transparent !text-white">F10</span>
+          {user?.language === 'te' ? t('Save & print') : 'SAVE & PRINT'} <span className="kbd !border-white/70 !bg-transparent !text-white">F10</span>
         </Button>
         <div className="grid grid-cols-2 gap-2">
           <Button disabled={!canSave || saving} onClick={() => void save(false)} className="h-11">
-            Save only
+            {t('Save only')}
           </Button>
           <Button
             variant="danger"
@@ -842,10 +844,10 @@ export function Billing() {
               }
             }}
           >
-            Clear bill
+            {t('Clear bill')}
           </Button>
         </div>
-        <Field label="Note on bill (optional)">
+        <Field label={t('Note on bill (optional)')}>
           <Input value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} placeholder="e.g. deliver to site tomorrow" />
         </Field>
         {draft.savedAt && draft.lines.length > 0 && (
