@@ -31,11 +31,17 @@ const T: Record<string, string> = {
 const COPIES = ['Original for recipient', 'Duplicate for transporter', 'Triplicate for supplier'];
 
 /** Brands the shop deals in, shown at the foot of the bill. Logos come from each company's own website. */
-const BRANDS: ({ name: string; src: string; h: number; mono?: boolean } | { name: string; word: string; sub: string })[] = [
-  { name: 'UltraTech Cement', src: '/brands/ultratech.jpeg', h: 34 },
-  { name: 'Asian Paints', src: '/brands/asianpaints.png', h: 30 },
+type Brand =
+  | { name: string; src: string; h: number; mono?: boolean }
+  /** Logo files with white space around the artwork: show only the artwork (box), at the image size and offset given. */
+  | { name: string; src: string; crop: { w: number; h: number; imgW: number; imgH: number; x: number; y: number } }
+  | { name: string; word: string; sub: string };
+const BRANDS: Brand[] = [
+  // UltraTech and Birla White (square marks) both 36px tall; Asian Paints (a wide wordmark) as wide as its space allows
+  { name: 'UltraTech Cement', src: '/brands/ultratech.jpeg', crop: { w: 37, h: 36, imgW: 52, imgH: 43.7, x: 7.5, y: 3.8 } },
+  { name: 'Asian Paints', src: '/brands/asianpaints.png', crop: { w: 126, h: 25, imgW: 126, imgH: 46.7, x: 0, y: 14.5 } },
   { name: 'Birla Opus', src: '/brands/birlaopus.svg', h: 30 },
-  { name: 'Birla White', src: '/brands/birlawhite.svg', h: 30 },
+  { name: 'Birla White', src: '/brands/birlawhite.svg', crop: { w: 39.5, h: 36, imgW: 59.2, imgH: 59.2, x: 11.3, y: 11.3 } },
   { name: 'JSW Steel', src: '/brands/jsw.svg', h: 28 },
   { name: 'Legrand', src: '/brands/legrand.png', h: 20, mono: true },
   { name: 'Ultra Volt', word: 'ULTRA VOLT', sub: 'WIRES & CABLES' },
@@ -518,12 +524,6 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
             <div className={cx('text-[12px]', MUTED)}>{L('Amount in words')}</div>
             <b>{amountInWords(d.total)}</b>
           </div>
-          <div>
-            <div className={cx('text-[12px]', MUTED)}>
-              Tax in words ({inter ? `IGST ₹${formatPaise(d.igst)}` : `CGST ₹${formatPaise(d.cgst)} + SGST ₹${formatPaise(d.sgst)} = ₹${formatPaise(tax)}`})
-            </div>
-            <b>{amountInWords(tax)}</b>
-          </div>
         </div>
         <div className="grid w-[230px] grid-cols-[minmax(0,1fr)_auto] content-start gap-x-3 gap-y-[5px]">
           {d.discount > 0 && (
@@ -584,7 +584,11 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
           <span className={cx('text-center text-[12px] font-semibold tracking-[.14em]', MUTED)}>AUTHORISED DEALERS FOR</span>
           <div className="grid grid-cols-5 items-center justify-items-center gap-x-[18px] gap-y-2">
             {BRANDS.map((b) =>
-              'src' in b ? (
+              'crop' in b ? (
+                <div key={b.name} style={{ width: b.crop.w, height: b.crop.h, overflow: 'hidden' }}>
+                  <img src={b.src} alt={b.name} style={{ width: b.crop.imgW, height: b.crop.imgH, maxWidth: 'none', marginLeft: -b.crop.x, marginTop: -b.crop.y }} />
+                </div>
+              ) : 'src' in b ? (
                 <img key={b.name} src={b.src} alt={b.name} style={{ height: b.h, width: 'auto', maxWidth: 120, filter: b.mono ? 'brightness(0)' : undefined }} />
               ) : (
                 <div key={b.name} className="flex flex-col items-center leading-none">
