@@ -140,6 +140,33 @@ export function EwayModal({ invoiceId, open, onClose }: { invoiceId: number; ope
             </Notice>
           )}
 
+          {!skip && (
+            <section className="flex flex-col gap-2 rounded-[6px] border border-teal p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <b>Make it on the government e-way bill website</b>
+                <a
+                  href="https://ewaybillgst.gov.in/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-10 items-center gap-1.5 rounded-[6px] bg-teal px-3 text-sm font-semibold text-white hover:opacity-90"
+                >
+                  Open e-way bill website
+                  <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M14 4h6v6M20 4 10 14M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" /></svg>
+                </a>
+              </div>
+              <ol className="list-decimal pl-5 text-[13px] leading-relaxed">
+                <li>Fill the details above and press <b>Download JSON for the portal</b>.</li>
+                <li>
+                  Press <b>Open e-way bill website</b> and log in with the shop's e-way bill user name and password.
+                </li>
+                <li>
+                  Go to <b>e-Waybill → Generate Bulk</b>, choose the downloaded file, upload it, then press <b>Generate</b>.
+                </li>
+                <li>Type the 12-digit e-way bill number and date below and press <b>Save</b>.</li>
+              </ol>
+            </section>
+          )}
+
           <section className="rounded-[6px] bg-paper p-3">
             <div className="mb-2 font-bold">After generating it on ewaybillgst.gov.in</div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -163,7 +190,7 @@ export function EwayModal({ invoiceId, open, onClose }: { invoiceId: number; ope
 
           {error && <Notice tone="bad">{error}</Notice>}
           <p className="text-[12px] text-ink-3">
-            Portal: e-Waybill → <b>Generate Bulk</b> → choose the downloaded JSON. Check the result on the portal before printing it. Store Desk does not send anything to the portal itself.
+            Check the result on the website before printing it. Store Desk does not send anything to the website itself.
           </p>
         </div>
       )}
