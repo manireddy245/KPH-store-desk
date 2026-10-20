@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
+  ewayNeeded,
   B2C_DETAILS_THRESHOLD_PAISE,
   BASE,
   STATES,
@@ -295,6 +296,8 @@ export function Billing() {
 
   // ------------------------------------------------------------ save
   const [saving, setSaving] = useState(false);
+  /** Bills above ₹50,000: ask whether goods are moving by vehicle (e-way bill) before the next bill. */
+  const [ewayAsk, setEwayAsk] = useState<{ id: number; number: string; totalPaise: number } | null>(null);
   const save = async (print: boolean, creditOverrideToken?: string) => {
     if (!canSave || saving) return;
     setSaving(true);
@@ -340,7 +343,9 @@ export function Billing() {
         action: print ? undefined : { label: 'Print', onClick: () => window.open(`/print/invoice/${r.id}?auto=1`, '_blank') },
       });
       products.refetch();
-      setTimeout(() => searchRef.current?.focus(), 50);
+      if (ewayNeeded({ taxablePaise: totals.taxablePaise, cgstPaise: totals.cgstPaise, sgstPaise: totals.sgstPaise, igstPaise: totals.igstPaise })) {
+        setEwayAsk({ id: r.id, number: r.number, totalPaise: totals.totalPaise });
+      } else setTimeout(() => searchRef.current?.focus(), 50);
     } catch (e) {
       const err = e instanceof ApiError ? e : null;
       if (err?.code === 'NEEDS_OVERRIDE' && typeof err.details?.lineIndex === 'number') {
@@ -858,6 +863,17 @@ export function Billing() {
         )}
       </aside>
 
+      <EwayQuestion
+        ask={ewayAsk}
+        onYes={(id) => {
+          setEwayAsk(null);
+          navigate(`/sales?open=${id}&eway=1`);
+        }}
+        onDone={() => {
+          setEwayAsk(null);
+          setTimeout(() => searchRef.current?.focus(), 50);
+        }}
+      />
       <QuickCustomer
         open={addCustomerOpen}
         initialName={custQ}
@@ -941,6 +957,64 @@ function QuickCustomer({ open, onClose, onCreated, initialName }: { open: boolea
         {error && <Notice tone="bad">{error}</Notice>}
         <button type="submit" hidden />
       </form>
+    </Modal>
+  );
+}
+
+const NOT_NEEDED = ['Customer collected the goods from the shop', 'Goods not moving yet (delivery later)', 'Delivered by hand / no vehicle'];
+
+/** After a bill above ₹50,000: is an e-way bill needed? Yes → the e-way bill form for that bill; No → noted with a reason. */
+function EwayQuestion({ ask, onYes, onDone }: { ask: { id: number; number: string; totalPaise: number } | null; onYes: (id: number) => void; onDone: () => void }) {
+  const toast = useToast();
+  const [reason, setReason] = useState(NOT_NEEDED[0]!);
+  const [busy, setBusy] = useState(false);
+  const no = async () => {
+    if (!ask) return;
+    setBusy(true);
+    try {
+      await put(`/api/invoices/${ask.id}/transport`, { notNeededReason: reason });
+      toast({ tone: 'good', text: `No e-way bill for ${ask.number}: ${reason.toLowerCase()}` });
+      onDone();
+    } catch (e) {
+      toast({ tone: 'bad', text: e instanceof ApiError ? e.message : 'Could not save' });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open={!!ask}
+      onClose={onDone}
+      title="E-way bill needed?"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onDone}>
+            Ask later
+          </Button>
+          <Button busy={busy} onClick={() => void no()}>
+            No, not needed
+          </Button>
+          <Button variant="primary" onClick={() => ask && onYes(ask.id)}>
+            Yes, make e-way bill
+          </Button>
+        </>
+      }
+    >
+      {ask && (
+        <div className="flex flex-col gap-3 text-sm">
+          <p>
+            Bill <b className="num">{ask.number}</b> is <b className="num">₹{formatPaise(ask.totalPaise)}</b>, above ₹50,000. If the goods go by vehicle (our delivery, a lorry or a transporter), an e-way bill is needed before they leave.
+          </p>
+          <Field label="If not needed, why?">
+            <select className="h-11 rounded-[6px] border border-line-2 bg-white px-3" value={reason} onChange={(e) => setReason(e.target.value)}>
+              {NOT_NEEDED.map((r) => (
+                <option key={r}>{r}</option>
+              ))}
+            </select>
+          </Field>
+          <p className="text-[12px] text-ink-3">“Ask later” keeps it on the bill as “E-way bill needed…” in Sales.</p>
+        </div>
+      )}
     </Modal>
   );
 }

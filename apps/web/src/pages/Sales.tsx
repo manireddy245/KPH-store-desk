@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ewayNeeded, formatPaise, formatPercent, formatQty } from '@kph/core';
@@ -115,13 +115,13 @@ export function Sales() {
         )}
         {!list.isLoading && rows.length === 0 && <Empty>No bills in this period.</Empty>}
       </div>
-      <InvoiceModal id={openId} onClose={() => setParams({})} />
+      <InvoiceModal id={openId} startEway={params.get('eway') === '1'} onClose={() => setParams({})} />
       <CreditNotes />
     </Page>
   );
 }
 
-export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () => void }) {
+export function InvoiceModal({ id, onClose, startEway = false }: { id: number | null; onClose: () => void; startEway?: boolean }) {
   const { can } = useSession();
   const qc = useQueryClient();
   const toast = useToast();
@@ -129,7 +129,11 @@ export function InvoiceModal({ id, onClose }: { id: number | null; onClose: () =
   const inv = useQuery({ queryKey: ['invoice', id], queryFn: () => get<InvoiceFull>(`/api/invoices/${id}`), enabled: id != null });
   const [cancelOpen, setCancelOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
-  const [ewayOpen, setEwayOpen] = useState(false);
+  const [ewayOpen, setEwayOpen] = useState(startEway);
+  // sent here from billing ("Yes, make e-way bill"): open the e-way bill form straight away
+  useEffect(() => {
+    if (startEway && id != null) setEwayOpen(true);
+  }, [startEway, id]);
   const [tagOpen, setTagOpen] = useState(false);
   const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [tagPartner, setTagPartner] = useState<PartnerPick | null>(null);

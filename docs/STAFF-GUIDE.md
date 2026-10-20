@@ -29,6 +29,10 @@ Short and simple: how to bill, take payments and handle stock. Telugu is below t
 - A painter, mason or contractor sent the customer? Choose them under **Brought by**. Their reward is added by itself.
 - Cement: billing shows **which batch to give first** (the oldest).
 - A walk-in customer doesn't need a name. For bills of ₹50,000 or more, type their name, phone and address.
+- **Bills above ₹50,000:** after saving, it asks **"E-way bill needed?"**
+  - **Yes**: goods going by vehicle (our delivery, lorry, transporter). The e-way bill form opens for that bill.
+  - **No**: pick why (for example, customer collected from the shop).
+  - **Ask later**: the bill shows "E-way bill needed…" in Sales.
 
 ### Returns and cancelling
 - **Return:** Sales → open the bill → **Return items…** → choose items and quantities → save. Stock comes back and a credit note is made.
@@ -78,6 +82,10 @@ Short and simple: how to bill, take payments and handle stock. Telugu is below t
 - పెయింటర్, మేస్త్రీ లేదా కాంట్రాక్టర్ పంపితే **తీసుకొచ్చినవారు** లో వారిని ఎంచుకోండి. వారి బహుమతి దానంతట అదే కలుస్తుంది.
 - సిమెంట్: **ముందు ఏ బ్యాచ్ ఇవ్వాలో** (పాతది) బిల్లింగ్ లో చూపిస్తుంది.
 - మామూలు కస్టమర్‌కు పేరు అవసరం లేదు. ₹50,000 లేదా అంతకంటే ఎక్కువ బిల్లుకు పేరు, ఫోన్, చిరునామా రాయండి.
+- **₹50,000 మించిన బిల్లులు:** సేవ్ చేసిన తరువాత **"E-way bill needed?"** అని అడుగుతుంది.
+  - **Yes**: సరుకు వాహనంలో వెళ్తుంటే (మా డెలివరీ, లారీ, ట్రాన్స్‌పోర్ట్). ఆ బిల్లుకు ఇ-వే బిల్లు ఫారం తెరుచుకుంటుంది.
+  - **No**: ఎందుకో ఎంచుకోండి (ఉదా: కస్టమర్ షాప్ నుండే తీసుకెళ్లారు).
+  - **Ask later**: Sales లో ఆ బిల్లు మీద "E-way bill needed…" అని ఉంటుంది.
 
 ### రిటర్న్ మరియు రద్దు
 - **రిటర్న్:** Sales → బిల్లు తెరవండి → **Return items…** → సరుకులు, పరిమాణం ఎంచుకుని సేవ్. సరుకు స్టాక్‌లోకి తిరిగి వస్తుంది.
