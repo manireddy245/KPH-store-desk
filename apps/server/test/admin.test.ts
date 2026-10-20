@@ -36,7 +36,7 @@ describe('import from CSV / Excel', () => {
     expect(preview.status).toBe(200);
     const rows = preview.body.rows as { rowNo: number; errors: string[]; warnings: string[]; action: string; values: Record<string, unknown> }[];
     const row = (n: number) => rows.find((r) => r.rowNo === n)!;
-    expect(row(2)).toMatchObject({ action: 'create', errors: [], values: { unit: 'bag', salePricePaise: 31500, costPricePaise: 29200, openingQtyMilli: 120000 } });
+    expect(row(2)).toMatchObject({ action: 'create', errors: [], values: { unit: 'bag', salePricePaise: 31500, costPriceCp: 2920000, openingQtyMilli: 120000 } });
     expect(row(3).warnings).toContain('HSN code missing');
     expect(row(3).values).toMatchObject({ unit: 'nos', salePricePaise: 3850 });
     expect(row(4).warnings).toEqual(expect.arrayContaining(['Unit missing — will use "pcs"', 'GST rate missing — will use 18%', 'Selling price missing — will be ₹0']));

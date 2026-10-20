@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import Papa from 'papaparse';
-import { isValidGstin, parsePercent, parseQty, parseRupees } from '@kph/core';
+import { isValidGstin, parsePercent, parseQty, parseCost, parseRupees } from '@kph/core';
 import type { Sql } from '../db/connect.js';
 import { AppError, audit, requirePerm, type Ctx } from './common.js';
 import { createPartyLedger } from './ledger.js';
@@ -168,6 +168,17 @@ export async function analyse(
     if (!name) errors.push('Name is missing');
     v.name = name;
 
+    // cost prices may have up to 4 decimals (1/10,000 rupee)
+    const cost = (f: string, label: string) => {
+      const raw = get(r, f);
+      if (!raw) return null;
+      const c = parseCost(raw);
+      if (c == null) {
+        errors.push(`${label} "${raw}" is not a valid amount (up to 4 decimals)`);
+        return null;
+      }
+      return c;
+    };
     const money = (f: string, label: string, opt: { warnIfMissing?: string } = {}) => {
       const raw = get(r, f);
       if (!raw) {
@@ -229,9 +240,9 @@ export async function analyse(
       }
       v.salePricePaise = money('price', 'Selling price', { warnIfMissing: 'Selling price missing — will be ₹0' }) ?? 0;
       if (v.salePricePaise === 0 && get(r, 'price')) warnings.push('Selling price is ₹0');
-      v.costPricePaise = money('cost', 'Cost price');
+      v.costPriceCp = cost('cost', 'Cost price');
       v.mrpPaise = money('mrp', 'MRP');
-      if (v.costPricePaise != null && (v.salePricePaise as number) > 0 && (v.costPricePaise as number) > (v.salePricePaise as number))
+      if (v.costPriceCp != null && (v.salePricePaise as number) > 0 && (v.costPriceCp as number) > (v.salePricePaise as number) * 100)
         warnings.push('Cost price is higher than selling price');
 
       const qtyRaw = get(r, 'qty');
@@ -348,21 +359,21 @@ export async function applyImport(
           await tx`
             update products set name = ${v.name}, category_id = coalesce(${categoryId}, category_id), brand_id = coalesce(${brandId}, brand_id),
               unit_code = ${v.unit}, hsn = coalesce(${v.hsn}, hsn), gst_rate_bp = ${v.gstRateBp}, sale_price_paise = ${v.salePricePaise},
-              cost_price_paise = coalesce(${v.costPricePaise}, cost_price_paise), mrp_paise = coalesce(${v.mrpPaise}, mrp_paise),
+              cost_price_cp = coalesce(${v.costPriceCp}, cost_price_cp), mrp_paise = coalesce(${v.mrpPaise}, mrp_paise),
               reorder_level_milli = coalesce(${v.reorderLevelMilli ?? null}, reorder_level_milli), updated_at = now()
             where lower(sku) = ${v.sku.toLowerCase()}`;
           continue;
         }
         const [p] = await tx<{ id: number }[]>`
-          insert into products (sku, name, category_id, brand_id, unit_code, hsn, gst_rate_bp, sale_price_paise, cost_price_paise,
+          insert into products (sku, name, category_id, brand_id, unit_code, hsn, gst_rate_bp, sale_price_paise, cost_price_cp,
                                 mrp_paise, reorder_level_milli, max_disc_type, max_disc_value, is_sample)
           values (${v.sku}, ${v.name}, ${categoryId}, ${brandId}, ${v.unit}, ${v.hsn}, ${v.gstRateBp}, ${v.salePricePaise},
-                  ${v.costPricePaise}, ${v.mrpPaise}, ${v.reorderLevelMilli ?? null}, ${v.maxDiscType ?? null}, ${v.maxDiscValue ?? null},
+                  ${v.costPriceCp}, ${v.mrpPaise}, ${v.reorderLevelMilli ?? null}, ${v.maxDiscType ?? null}, ${v.maxDiscValue ?? null},
                   ${opts.isSample ?? false})
           returning id`;
         if (v.openingQtyMilli > 0) {
-          await tx`insert into stock_movements (product_id, qty_milli, kind, unit_cost_paise, reason, user_id, device_id)
-                   values (${p!.id}, ${v.openingQtyMilli}, 'opening', ${v.costPricePaise}, 'Opening stock (import)', ${ctx.userId}, ${ctx.deviceId})`;
+          await tx`insert into stock_movements (product_id, qty_milli, kind, unit_cost_cp, reason, user_id, device_id)
+                   values (${p!.id}, ${v.openingQtyMilli}, 'opening', ${v.costPriceCp}, 'Opening stock (import)', ${ctx.userId}, ${ctx.deviceId})`;
         }
       } else if (kind === 'customers') {
         const [c] = await tx<{ id: number }[]>`

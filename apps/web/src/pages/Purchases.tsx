@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatPaise, formatPercent, formatQty } from '@kph/core';
+import { formatPaise, formatPercent, formatQty, formatCost } from '@kph/core';
 import { ApiError, get, post, qs, store } from '../lib/api';
 import { daysAgoIst, fmtDate, fmtDateTime, todayIst } from '../lib/format';
 import { useOverride } from '../lib/override';
@@ -134,7 +134,7 @@ interface PurchaseFull {
   device_name: string | null;
   notes: string | null;
   debit_notes: { id: number; number: string; note_date: string; total_paise: number; reason: string }[];
-  lines: { id: number; returned_milli: number; line_no: number; product_name: string; sku: string; description: string | null; qty_milli: number; unit_code: string; unit_cost_paise: number; taxable_paise: number; gst_rate_bp: number; total_paise: number }[];
+  lines: { id: number; returned_milli: number; line_no: number; product_name: string; sku: string; description: string | null; qty_milli: number; unit_code: string; unit_cost_cp: number; taxable_paise: number; gst_rate_bp: number; total_paise: number }[];
 }
 
 function PurchaseModal({ id, onClose }: { id: number | null; onClose: () => void }) {
@@ -244,7 +244,7 @@ function PurchaseModal({ id, onClose }: { id: number | null; onClose: () => void
                   <td className="num text-right">
                     {formatQty(l.qty_milli)} {l.unit_code}
                   </td>
-                  <td className="num text-right">{formatPaise(l.unit_cost_paise)}</td>
+                  <td className="num text-right">{formatCost(l.unit_cost_cp)}</td>
                   <td className="num text-right">{formatPaise(l.taxable_paise)}</td>
                   <td className="num text-right">{formatPercent(l.gst_rate_bp)}%</td>
                   <td className="num text-right font-bold">{formatPaise(l.total_paise)}</td>

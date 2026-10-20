@@ -600,7 +600,7 @@ export async function openingBalances(q: Q, ctx: Ctx) {
            count(*) filter (where party_type = 'supplier' and opening_dr_paise <> 0)::int as suppliers_n
     from ledgers where party_type is not null`;
   const [stock] = await q<{ value: number; items: number }[]>`
-    select coalesce(sum(m.qty_milli * coalesce(m.unit_cost_paise, p.cost_price_paise, 0) / 1000), 0)::bigint as value, count(distinct m.product_id)::int as items
+    select coalesce(sum(round(m.qty_milli::numeric * coalesce(m.unit_cost_cp, p.cost_price_cp, 0) / 100000)), 0)::bigint as value, count(distinct m.product_id)::int as items
     from stock_movements m join products p on p.id = m.product_id where m.kind = 'opening'`;
   const nonCapital = ledgers.filter((l) => l.system_code !== 'capital').reduce((t, l) => t + l.opening_dr_paise, 0);
   const total = nonCapital + parties!.customers_dr - parties!.suppliers_cr + stock!.value;

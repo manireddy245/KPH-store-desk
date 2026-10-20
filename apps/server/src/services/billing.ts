@@ -129,7 +129,7 @@ export interface ProductForBill {
   gst_rate_bp: number;
   sale_price_paise: number;
   price_includes_tax: boolean;
-  cost_price_paise: number | null;
+  cost_price_cp: number | null;
   active: boolean;
   max_disc_type: 'pct' | 'amt' | null;
   max_disc_value: number | null;
@@ -176,7 +176,7 @@ export function listRate(p: Pick<ProductForBill, 'sale_price_paise' | 'price_inc
 }
 
 export const PRODUCT_FOR_BILL_COLUMNS = `
-  p.id, p.sku, p.name, p.hsn, p.unit_code, p.gst_rate_bp, p.sale_price_paise, p.price_includes_tax, p.cost_price_paise, p.active, p.is_service,
+  p.id, p.sku, p.name, p.hsn, p.unit_code, p.gst_rate_bp, p.sale_price_paise, p.price_includes_tax, p.cost_price_cp, p.active, p.is_service,
   p.max_disc_type, p.max_disc_value, c.max_disc_type as cat_disc_type, c.max_disc_value as cat_disc_value,
   coalesce((select json_agg(json_build_object('unit_code', u.unit_code, 'factor_num', u.factor_num, 'factor_den', u.factor_den,
             'for_sale', u.for_sale, 'for_purchase', u.for_purchase, 'price_paise', u.price_paise)) from product_units u where u.product_id = p.id), '[]'::json) as units`;
@@ -420,7 +420,7 @@ async function saveInvoice(
           igst_paise: r.igstPaise,
           total_paise: r.totalPaise,
           amount_paise: r.amountPaise,
-          cost_price_paise: p.cost_price_paise,
+          cost_price_cp: p.cost_price_cp,
           override_id: overrideId,
         };
       }),
@@ -434,7 +434,7 @@ async function saveInvoice(
         kind: 'sale',
         ref_type: 'sales_invoice',
         ref_id: id,
-        unit_cost_paise: p.cost_price_paise,
+        unit_cost_cp: p.cost_price_cp,
         user_id: ctx.userId,
         device_id: ctx.deviceId,
         at,
@@ -486,7 +486,7 @@ export async function getInvoice(q: Q, id: number, opts: { withCost?: boolean } 
     select l.*, (select p.is_service from products p where p.id = l.product_id) as is_service, coalesce((select sum(cl.qty_milli) from credit_note_lines cl join credit_notes cn on cn.id = cl.credit_note_id
                           where cl.invoice_line_id = l.id and cn.status = 'posted'), 0) as returned_qty_milli
     from sales_invoice_lines l where l.invoice_id = ${id} order by l.line_no`;
-  if (!opts.withCost) for (const l of lines) delete l.cost_price_paise;
+  if (!opts.withCost) for (const l of lines) delete l.cost_price_cp;
   const creditNotes = await q`select id, number, note_date, total_paise, status from credit_notes where invoice_id = ${id} order by id`;
   const [details] = await q`select * from invoice_details where invoice_id = ${id}`;
   // Printed when the bill's own boxes are blank: the quotation it came from, and its delivery challans.
@@ -542,8 +542,8 @@ export async function cancelInvoice(sql: Sql, ctx: Ctx, id: number, input: { rea
     const cancelVoucherId = inv.voucher_id
       ? await reverseVoucher(tx, ctx, inv.voucher_id, date, `Cancelled bill ${inv.number}: ${reason}`)
       : null;
-    const lines = await tx<{ product_id: number; base_qty_milli: number; cost_price_paise: number | null }[]>`
-      select l.product_id, l.base_qty_milli, l.cost_price_paise from sales_invoice_lines l join products p on p.id = l.product_id
+    const lines = await tx<{ product_id: number; base_qty_milli: number; cost_price_cp: number | null }[]>`
+      select l.product_id, l.base_qty_milli, l.cost_price_cp from sales_invoice_lines l join products p on p.id = l.product_id
       where l.invoice_id = ${id} and not p.is_service`;
     if (lines.length) await tx`insert into stock_movements ${tx(
       lines.map((l) => ({
@@ -552,7 +552,7 @@ export async function cancelInvoice(sql: Sql, ctx: Ctx, id: number, input: { rea
         kind: 'sale_cancel',
         ref_type: 'sales_invoice',
         ref_id: id,
-        unit_cost_paise: l.cost_price_paise,
+        unit_cost_cp: l.cost_price_cp,
         reason,
         user_id: ctx.userId,
         device_id: ctx.deviceId,

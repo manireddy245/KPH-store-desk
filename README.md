@@ -95,7 +95,7 @@ docs/           Guides for each phase, plus staff, admin and setup guides.
 ```
 
 House rules the code keeps:
-- **Money is whole paise** (integers): no floating-point rupees anywhere.
+- **Money is whole paise** (integers): no floating-point rupees anywhere. **Cost prices** carry 4 decimals (e.g. ₹57.2034 a kg), stored as whole 1/10,000-rupee units; bills, GST and totals stay at 2 decimals.
 - **Bill numbers are gapless** per financial year (e.g. `KPH/26-27/000123`). A failed save never uses up a number.
 - **Nothing is deleted.** Bills, payments and stock entries can only be cancelled or reversed, with a reason.
   - The database enforces this: the app's own login cannot delete business records or edit stock balances.

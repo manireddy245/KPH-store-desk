@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ewayNeeded, formatPaise, formatPercent, formatQty } from '@kph/core';
+import { ewayNeeded, formatPaise, formatPercent, formatQty, costValuePaise } from '@kph/core';
 import { ApiError, get, post, qs } from '../lib/api';
 import { MODE_LABEL, csvCell, daysAgoIst, downloadText, fmtDate, fmtDateTime, todayIst } from '../lib/format';
 import { useOverride } from '../lib/override';
@@ -277,8 +277,8 @@ export function InvoiceModal({ id, onClose, startEway = false }: { id: number | 
                     <div className="font-semibold">{l.product_name}</div>
                     <div className="text-xs text-ink-3">
                       {l.sku} · HSN {l.hsn ?? '—'}
-                      {l.cost_price_paise != null && l.cost_price_paise > 0 && (
-                        <span className="num"> · margin ₹{formatPaise(l.taxable_paise - Math.round((l.cost_price_paise * l.qty_milli) / 1000))}</span>
+                      {l.cost_price_cp != null && l.cost_price_cp > 0 && (
+                        <span className="num"> · margin ₹{formatPaise(l.taxable_paise - costValuePaise(l.base_qty_milli, l.cost_price_cp))}</span>
                       )}
                     </div>
                   </td>

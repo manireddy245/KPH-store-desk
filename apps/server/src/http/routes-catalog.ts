@@ -32,7 +32,7 @@ const productBody = z.object({
   hsn: z.string().nullable().optional(),
   gstRateBp: z.number().int().min(0).max(10000).optional(),
   salePricePaise: money.optional(),
-  costPricePaise: money.nullable().optional(),
+  costPriceCp: money.nullable().optional(),
   mrpPaise: money.nullable().optional(),
   reorderLevelMilli: money.nullable().optional(),
   active: z.boolean().optional(),

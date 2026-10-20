@@ -51,8 +51,8 @@ describe('accounts', () => {
     // 100 bags at ₹800 + 100 bags bought at ₹900 → ₹850
     const p = await admin.post('/api/purchases', { supplierId, supplierInvoiceNo: `W-${h.tag}`, supplierInvoiceDate: today, lines: [{ productId, qtyMilli: 100_000, taxablePaise: 9_000_000, gstRateBp: 1800 }] });
     expect(p.status, JSON.stringify(p.body)).toBe(200);
-    const [c] = await h.app<{ c: number }[]>`select cost_price_paise as c from products where id = ${productId}`;
-    expect(c!.c).toBe(85_000);
+    const [c] = await h.app<{ c: number }[]>`select cost_price_cp as c from products where id = ${productId}`;
+    expect(c!.c).toBe(8_500_000);
   });
 
   it('pays a supplier against bills, on account for the rest; ageing settles oldest first', async () => {

@@ -1,4 +1,4 @@
-import { classify, forecastDaily, formatQty, fyStartYear, istDate, reorderAdvice, type Movement } from '@kph/core';
+import { classify, costValuePaise, forecastDaily, formatQty, fyStartYear, istDate, reorderAdvice, type Movement } from '@kph/core';
 import type { Q, Sql } from '../db/connect.js';
 import { AppError, audit, can, requirePerm, type Ctx } from './common.js';
 import { nextDocNumber } from './ledger.js';
@@ -30,7 +30,8 @@ export interface InsightRow {
   categoryId: number | null;
   brand: string | null;
   stockMilli: number;
-  costPaise: number | null;
+  /** Cost per unit, 4 decimals (1/10,000 rupee). */
+  costCp: number | null;
   valuePaise: number | null;
   soldMilli: number;
   soldPaise: number;
@@ -95,7 +96,7 @@ export async function stockInsights(q: Q, ctx: Ctx, opts: { asOf?: string } = {}
       order by pl.product_id, pi.id desc
     )
     select p.id, p.name, p.sku, p.unit_code, p.category_id, c.name as category, b.name as brand, c.target_days,
-           coalesce(sb.qty_milli, 0) as stock, p.cost_price_paise as cost, (${today}::date - p.created_at::date) as age_days,
+           coalesce(sb.qty_milli, 0) as stock, p.cost_price_cp as cost, (${today}::date - p.created_at::date) as age_days,
            coalesce(a.sold, 0)::bigint as sold, coalesce(a.sold_value, 0)::bigint as sold_value, coalesce(a.prev_sold, 0)::bigint as prev_sold,
            ls2.last_sale, coalesce(a.ly_same, 0)::bigint as ly_same, coalesce(a.ly_next, 0)::bigint as ly_next,
            coalesce(oo.q, 0)::bigint as on_order, ls.supplier_id, su.name as supplier_name, su.lead_time_days as lead_days
@@ -139,8 +140,8 @@ export async function stockInsights(q: Q, ctx: Ctx, opts: { asOf?: string } = {}
       categoryId: r.category_id,
       brand: r.brand,
       stockMilli: r.stock,
-      costPaise: showCost ? r.cost : null,
-      valuePaise: showCost ? Math.round((Math.max(r.stock, 0) * (r.cost ?? 0)) / 1000) : null,
+      costCp: showCost ? r.cost : null,
+      valuePaise: showCost ? costValuePaise(Math.max(r.stock, 0), r.cost ?? 0) : null,
       soldMilli: r.sold,
       soldPaise: r.sold_value,
       prevSoldMilli: r.prev_sold,
@@ -301,7 +302,7 @@ export async function getAudit(q: Q, ctx: Ctx, id: number) {
     from stock_audits a left join categories c on c.id = a.category_id join users u on u.id = a.user_id where a.id = ${id}`;
   if (!a) throw new AppError(404, 'NOT_FOUND', 'Stock count not found');
   const items = await q<{ product_id: number; name: string; sku: string; unit_code: string; category: string | null; book_milli: number; cost: number | null; line_id: number | null; system_milli: number | null; counted_milli: number | null; reason: string | null; note: string | null; adjusted: boolean | null; counted_by: string | null }[]>`
-    select p.id as product_id, p.name, p.sku, p.unit_code, c.name as category, coalesce(sb.qty_milli, 0) as book_milli, p.cost_price_paise as cost,
+    select p.id as product_id, p.name, p.sku, p.unit_code, c.name as category, coalesce(sb.qty_milli, 0) as book_milli, p.cost_price_cp as cost,
            l.id as line_id, l.system_milli, l.counted_milli, l.reason, l.note, l.adjusted, u.name as counted_by
     from products p left join categories c on c.id = p.category_id left join stock_balances sb on sb.product_id = p.id
          left join stock_audit_lines l on l.product_id = p.id and l.audit_id = ${id} left join users u on u.id = l.counted_by
@@ -317,8 +318,8 @@ export async function getAudit(q: Q, ctx: Ctx, id: number) {
       products: items.length,
       counted: counted.length,
       differences: diffs.length,
-      shortValuePaise: showCost ? diffs.filter((i) => i.counted_milli! < i.system_milli!).reduce((t, i) => t + Math.round(((i.system_milli! - i.counted_milli!) * (i.cost ?? 0)) / 1000), 0) : null,
-      excessValuePaise: showCost ? diffs.filter((i) => i.counted_milli! > i.system_milli!).reduce((t, i) => t + Math.round(((i.counted_milli! - i.system_milli!) * (i.cost ?? 0)) / 1000), 0) : null,
+      shortValuePaise: showCost ? diffs.filter((i) => i.counted_milli! < i.system_milli!).reduce((t, i) => t + costValuePaise(i.system_milli! - i.counted_milli!, i.cost ?? 0), 0) : null,
+      excessValuePaise: showCost ? diffs.filter((i) => i.counted_milli! > i.system_milli!).reduce((t, i) => t + costValuePaise(i.counted_milli! - i.system_milli!, i.cost ?? 0), 0) : null,
     },
   };
 }
@@ -359,7 +360,7 @@ export async function closeAudit(sql: Sql, ctx: Ctx, auditId: number) {
     if (!a) throw new AppError(404, 'NOT_FOUND', 'Stock count not found');
     if (a.status !== 'open') throw new AppError(409, 'CLOSED', 'This stock count is already closed');
     const lines = await tx<{ id: number; product_id: number; name: string; system_milli: number; counted_milli: number; reason: string | null; note: string | null; cost: number | null }[]>`
-      select l.id, l.product_id, p.name, l.system_milli, l.counted_milli, l.reason, l.note, p.cost_price_paise as cost
+      select l.id, l.product_id, p.name, l.system_milli, l.counted_milli, l.reason, l.note, p.cost_price_cp as cost
       from stock_audit_lines l join products p on p.id = l.product_id where l.audit_id = ${auditId} and l.counted_milli <> l.system_milli and not l.adjusted`;
     const missing = lines.filter((l) => !l.reason);
     if (missing.length) throw new AppError(400, 'REASON_REQUIRED', `Give a reason for every difference (${missing.slice(0, 3).map((m) => m.name).join(', ')}${missing.length > 3 ? '…' : ''})`, { productIds: missing.map((m) => m.product_id) });
@@ -372,7 +373,7 @@ export async function closeAudit(sql: Sql, ctx: Ctx, auditId: number) {
           kind: 'audit',
           ref_type: 'stock_audit',
           ref_id: auditId,
-          unit_cost_paise: l.cost,
+          unit_cost_cp: l.cost,
           reason: `${a.number}: ${l.reason}${l.note ? ` — ${l.note}` : ''}`,
           user_id: ctx.userId,
           device_id: ctx.deviceId,

@@ -48,7 +48,7 @@ interface InvLine {
   cgst_paise: number;
   sgst_paise: number;
   igst_paise: number;
-  cost_price_paise: number | null;
+  cost_price_cp: number | null;
   ret_qty: number;
   ret_base: number;
   ret_taxable: number;
@@ -80,7 +80,7 @@ export async function createCreditNote(sql: Sql, ctx: Ctx, invoiceId: number, in
 
     const lines = await tx<InvLine[]>`
       select l.id, l.line_no, l.product_id, l.product_name, l.unit_code, l.qty_milli, l.base_qty_milli, l.factor_num, l.factor_den,
-             l.taxable_paise, l.gst_rate_bp, l.cgst_paise, l.sgst_paise, l.igst_paise, l.cost_price_paise,
+             l.taxable_paise, l.gst_rate_bp, l.cgst_paise, l.sgst_paise, l.igst_paise, l.cost_price_cp,
              coalesce(sum(cl.qty_milli), 0) as ret_qty, coalesce(sum(cl.base_qty_milli), 0) as ret_base,
              coalesce(sum(cl.taxable_paise), 0) as ret_taxable, coalesce(sum(cl.cgst_paise), 0) as ret_cgst,
              coalesce(sum(cl.sgst_paise), 0) as ret_sgst, coalesce(sum(cl.igst_paise), 0) as ret_igst
@@ -182,9 +182,9 @@ export async function createCreditNote(sql: Sql, ctx: Ctx, invoiceId: number, in
     const moves = [];
     for (const x of rows) {
       if (serviceIds.has(x.l.product_id)) continue;
-      moves.push({ product_id: x.l.product_id, qty_milli: x.base, kind: 'sale_return', ref_type: 'credit_note', ref_id: id, unit_cost_paise: x.l.cost_price_paise, reason, user_id: ctx.userId, device_id: ctx.deviceId });
+      moves.push({ product_id: x.l.product_id, qty_milli: x.base, kind: 'sale_return', ref_type: 'credit_note', ref_id: id, unit_cost_cp: x.l.cost_price_cp, reason, user_id: ctx.userId, device_id: ctx.deviceId });
       if (!x.r.restock)
-        moves.push({ product_id: x.l.product_id, qty_milli: -x.base, kind: 'adjustment', ref_type: 'credit_note', ref_id: id, unit_cost_paise: x.l.cost_price_paise, reason: `Returned damaged, not resaleable (${number})`, user_id: ctx.userId, device_id: ctx.deviceId });
+        moves.push({ product_id: x.l.product_id, qty_milli: -x.base, kind: 'adjustment', ref_type: 'credit_note', ref_id: id, unit_cost_cp: x.l.cost_price_cp, reason: `Returned damaged, not resaleable (${number})`, user_id: ctx.userId, device_id: ctx.deviceId });
     }
     await lockProducts(tx, rows.map((x) => x.l.product_id).filter((pid) => !serviceIds.has(pid)));
     if (moves.length) await tx`insert into stock_movements ${tx(moves)}`;
@@ -248,8 +248,8 @@ export async function createDebitNote(sql: Sql, ctx: Ctx, purchaseId: number, in
       select id, number, status, supplier_id, supplier_invoice_no, supply_type from purchase_invoices where id = ${purchaseId} for update`;
     if (!pu) throw new AppError(404, 'NOT_FOUND', 'Purchase not found');
     if (pu.status !== 'posted') throw new AppError(409, 'NOT_POSTED', `${pu.number} is cancelled`);
-    const lines = await tx<{ id: number; product_id: number; product_name: string; unit_code: string; qty_milli: number; unit_cost_paise: number; taxable_paise: number; gst_rate_bp: number; cgst_paise: number; sgst_paise: number; igst_paise: number; ret_base: number; ret_taxable: number; ret_cgst: number; ret_sgst: number; ret_igst: number }[]>`
-      select l.id, l.product_id, p.name as product_name, l.unit_code, l.qty_milli, l.unit_cost_paise, l.taxable_paise, l.gst_rate_bp,
+    const lines = await tx<{ id: number; product_id: number; product_name: string; unit_code: string; qty_milli: number; unit_cost_cp: number; taxable_paise: number; gst_rate_bp: number; cgst_paise: number; sgst_paise: number; igst_paise: number; ret_base: number; ret_taxable: number; ret_cgst: number; ret_sgst: number; ret_igst: number }[]>`
+      select l.id, l.product_id, p.name as product_name, l.unit_code, l.qty_milli, l.unit_cost_cp, l.taxable_paise, l.gst_rate_bp,
              l.cgst_paise, l.sgst_paise, l.igst_paise,
              coalesce(sum(dl.base_qty_milli), 0) as ret_base, coalesce(sum(dl.taxable_paise), 0) as ret_taxable,
              coalesce(sum(dl.cgst_paise), 0) as ret_cgst, coalesce(sum(dl.sgst_paise), 0) as ret_sgst, coalesce(sum(dl.igst_paise), 0) as ret_igst
@@ -311,7 +311,7 @@ export async function createDebitNote(sql: Sql, ctx: Ctx, purchaseId: number, in
       rows.map((x, i) => ({ debit_note_id: id, line_no: i + 1, purchase_line_id: x.l.id, product_id: x.l.product_id, base_qty_milli: x.r.baseQtyMilli, taxable_paise: x.taxable, gst_rate_bp: x.l.gst_rate_bp, cgst_paise: x.cgst, sgst_paise: x.sgst, igst_paise: x.igst, total_paise: x.total })),
     )}`;
     await tx`insert into stock_movements ${tx(
-      rows.map((x) => ({ product_id: x.l.product_id, qty_milli: -x.r.baseQtyMilli, kind: 'purchase_return', ref_type: 'debit_note', ref_id: id, unit_cost_paise: x.l.unit_cost_paise, reason, user_id: ctx.userId, device_id: ctx.deviceId })),
+      rows.map((x) => ({ product_id: x.l.product_id, qty_milli: -x.r.baseQtyMilli, kind: 'purchase_return', ref_type: 'debit_note', ref_id: id, unit_cost_cp: x.l.unit_cost_cp, reason, user_id: ctx.userId, device_id: ctx.deviceId })),
     )}`;
     await audit(tx, ctx, 'debit_note.created', { entity: 'debit_note', entityId: id, details: { number, purchase: pu.number, supplier: sup!.name, totalPaise: total, items: rows.length }, reason });
     return { id, number, totalPaise: total };
@@ -335,7 +335,7 @@ export async function getDebitNote(q: Q, id: number) {
     where dn.id = ${id}`;
   if (!dn) throw new AppError(404, 'NOT_FOUND', 'Debit note not found');
   const lines = await q`
-    select dl.*, pr.name as product_name, pr.sku, l.hsn, l.unit_code, l.unit_cost_paise
+    select dl.*, pr.name as product_name, pr.sku, l.hsn, l.unit_code, l.unit_cost_cp
     from debit_note_lines dl join purchase_lines l on l.id = dl.purchase_line_id join products pr on pr.id = dl.product_id
     where dl.debit_note_id = ${id} order by dl.line_no`;
   return { ...dn, lines };

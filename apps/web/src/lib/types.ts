@@ -11,7 +11,7 @@ export interface ProductRow {
   gst_rate_bp: number;
   sale_price_paise: number;
   price_includes_tax: boolean;
-  cost_price_paise?: number | null;
+  cost_price_cp?: number | null;
   contents_milli: number | null;
   contents_unit: string | null;
   on_rate_board?: boolean;
@@ -111,7 +111,7 @@ export interface InvoiceLine {
   base_qty_milli: number;
   returned_qty_milli: number;
   id: number;
-  cost_price_paise?: number | null;
+  cost_price_cp?: number | null;
   is_service?: boolean;
 }
 
@@ -179,7 +179,7 @@ export interface AssistantScan {
     taxablePaise: number | null;
     gstRateBp: number | null;
     match: { kind: 'remembered' | 'sku' | 'name' | 'none'; productId: number | null };
-    lastCostPaise: number | null;
+    lastCostCp: number | null;
     warnings: string[];
   }[];
   freightPaise: number | null;

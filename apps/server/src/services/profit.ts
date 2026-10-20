@@ -18,7 +18,7 @@ function checkRange(r: Range) {
 }
 
 /** cost of a line: cost per base unit × base quantity */
-const LINE_COST = `round(coalesce(l.cost_price_paise, 0)::numeric * l.base_qty_milli / 1000)`;
+const LINE_COST = `round(coalesce(l.cost_price_cp, 0)::numeric * l.base_qty_milli / 100000)`;
 
 // ------------------------------------------------------------------ profit by product / category / brand
 
@@ -32,11 +32,11 @@ export async function profitBy(q: Q, ctx: Ctx, r: Range, by: GroupBy) {
   const rows = await q.unsafe<{ key: string; name: string; unit_code: string | null; qty: number; sales: number; cost: number; unknown_cost_lines: number; bills: number }[]>(
     `
     with s as (
-      select p.id as product_id, l.base_qty_milli as qty, l.taxable_paise as sales, ${LINE_COST} as cost, (l.cost_price_paise is null) as no_cost, si.id as invoice_id
+      select p.id as product_id, l.base_qty_milli as qty, l.taxable_paise as sales, ${LINE_COST} as cost, (l.cost_price_cp is null) as no_cost, si.id as invoice_id
       from sales_invoice_lines l join sales_invoices si on si.id = l.invoice_id join products p on p.id = l.product_id
       where si.status = 'posted' and si.invoice_date between $1 and $2
       union all
-      select p.id, -cl.base_qty_milli, -cl.taxable_paise, -round(coalesce(l.cost_price_paise, 0)::numeric * cl.base_qty_milli / 1000), false, null
+      select p.id, -cl.base_qty_milli, -cl.taxable_paise, -round(coalesce(l.cost_price_cp, 0)::numeric * cl.base_qty_milli / 100000), false, null
       from credit_note_lines cl join credit_notes cn on cn.id = cl.credit_note_id join sales_invoice_lines l on l.id = cl.invoice_line_id join products p on p.id = cl.product_id
       where cn.status = 'posted' and cn.note_date between $1 and $2
     )
@@ -64,8 +64,8 @@ export async function stockValuation(q: Q, ctx: Ctx, asOf: string) {
   requirePerm(ctx, 'products.view_cost', 'Only admin can see stock value');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new AppError(400, 'BAD_DATE', 'Choose a valid date');
   const rows = await q<{ id: number; sku: string; name: string; unit_code: string; category: string | null; brand: string | null; qty: number; cost: number | null; value: number }[]>`
-    select p.id, p.sku, p.name, p.unit_code, c.name as category, b.name as brand, m.qty, p.cost_price_paise as cost,
-           round(greatest(m.qty, 0)::numeric * coalesce(p.cost_price_paise, 0) / 1000)::bigint as value
+    select p.id, p.sku, p.name, p.unit_code, c.name as category, b.name as brand, m.qty, p.cost_price_cp as cost,
+           round(greatest(m.qty, 0)::numeric * coalesce(p.cost_price_cp, 0) / 100000)::bigint as value
     from (select product_id, sum(qty_milli)::bigint as qty from stock_movements
           where (at at time zone 'Asia/Kolkata')::date <= ${asOf} group by product_id) m
     join products p on p.id = m.product_id left join categories c on c.id = p.category_id left join brands b on b.id = p.brand_id
@@ -109,18 +109,18 @@ export async function profitAndLoss(q: Q, ctx: Ctx, r: Range) {
   checkRange(r);
   const [s] = await q<{ sales: number; cost: number; no_cost: number }[]>`
     select coalesce(sum(l.taxable_paise), 0)::bigint as sales,
-           coalesce(sum(round(coalesce(l.cost_price_paise, 0)::numeric * l.base_qty_milli / 1000)), 0)::bigint as cost,
-           count(*) filter (where l.cost_price_paise is null)::int as no_cost
+           coalesce(sum(round(coalesce(l.cost_price_cp, 0)::numeric * l.base_qty_milli / 100000)), 0)::bigint as cost,
+           count(*) filter (where l.cost_price_cp is null)::int as no_cost
     from sales_invoice_lines l join sales_invoices si on si.id = l.invoice_id
     where si.status = 'posted' and si.invoice_date between ${r.from} and ${r.to}`;
   const [ret] = await q<{ sales: number; cost: number }[]>`
     select coalesce(sum(cl.taxable_paise), 0)::bigint as sales,
-           coalesce(sum(round(coalesce(l.cost_price_paise, 0)::numeric * cl.base_qty_milli / 1000)), 0)::bigint as cost
+           coalesce(sum(round(coalesce(l.cost_price_cp, 0)::numeric * cl.base_qty_milli / 100000)), 0)::bigint as cost
     from credit_note_lines cl join credit_notes cn on cn.id = cl.credit_note_id join sales_invoice_lines l on l.id = cl.invoice_line_id
     where cn.status = 'posted' and cn.note_date between ${r.from} and ${r.to}`;
   // Stock written off (damaged, lost) or found on counting, valued at the cost recorded on the movement.
   const [adj] = await q<{ value: number }[]>`
-    select coalesce(sum(round(m.qty_milli::numeric * coalesce(m.unit_cost_paise, p.cost_price_paise, 0) / 1000)), 0)::bigint as value
+    select coalesce(sum(round(m.qty_milli::numeric * coalesce(m.unit_cost_cp, p.cost_price_cp, 0) / 100000)), 0)::bigint as value
     from stock_movements m join products p on p.id = m.product_id
     where m.kind in ('adjustment', 'audit') and (m.at at time zone 'Asia/Kolkata')::date between ${r.from} and ${r.to}`;
   const direct = await ledgerMovements(q, r, ['Direct Expenses']);

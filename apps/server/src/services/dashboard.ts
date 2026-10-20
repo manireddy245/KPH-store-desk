@@ -32,7 +32,7 @@ export async function dashboard(q: Q, ctx: Ctx) {
     select count(*)::int as products,
            count(*) filter (where coalesce(sb.qty_milli, 0) <= 0)::int as out_of_stock,
            count(*) filter (where coalesce(sb.qty_milli, 0) > 0 and coalesce(sb.qty_milli, 0) <= coalesce(p.reorder_level_milli, ${s.lowStockThresholdMilli}))::int as low_stock,
-           coalesce(sum(greatest(coalesce(sb.qty_milli, 0), 0) * coalesce(p.cost_price_paise, 0) / 1000), 0)::bigint as value_at_cost_paise
+           coalesce(sum(round(greatest(coalesce(sb.qty_milli, 0), 0)::numeric * coalesce(p.cost_price_cp, 0) / 100000)), 0)::bigint as value_at_cost_paise
     from products p left join stock_balances sb on sb.product_id = p.id where p.active and not p.is_service`;
 
   const lowItems = await q`

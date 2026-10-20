@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { formatCost } from '@kph/core';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Sql } from '../db/connect.js';
@@ -200,7 +201,7 @@ export interface ScanDraftLine {
   gstRateBp: number | null;
   lineTotalPaise: number | null;
   match: { kind: MatchKind; productId: number | null; score: number; alternatives: { productId: number; score: number }[] };
-  lastCostPaise: number | null;
+  lastCostCp: number | null;
   warnings: string[];
 }
 
@@ -255,13 +256,13 @@ export async function scanBill(
   const sup = opts.supplierId ? { supplierId: opts.supplierId, by: 'chosen' as const } : matchSupplier(read.supplier ?? {}, suppliers);
 
   // Products
-  const products = await sql<{ id: number; sku: string; name: string; brand_name: string | null; cost_price_paise: number | null; unit_code: string }[]>`
-    select p.id, p.sku, p.name, b.name as brand_name, p.cost_price_paise, p.unit_code from products p left join brands b on b.id = p.brand_id where p.active`;
+  const products = await sql<{ id: number; sku: string; name: string; brand_name: string | null; cost_price_cp: number | null; unit_code: string }[]>`
+    select p.id, p.sku, p.name, b.name as brand_name, p.cost_price_cp, p.unit_code from products p left join brands b on b.id = p.brand_id where p.active`;
   const aliasRows = await sql<{ alias: string; product_id: number; supplier_id: number | null }[]>`
     select alias, product_id, supplier_id from product_aliases where supplier_id is null or supplier_id = ${sup.supplierId ?? -1}
     order by supplier_id nulls first`;
   const aliases = new Map(aliasRows.map((a) => [a.alias, a.product_id]));
-  const costs = new Map(products.map((p) => [p.id, p.cost_price_paise]));
+  const costs = new Map(products.map((p) => [p.id, p.cost_price_cp]));
 
   const lines: ScanDraftLine[] = read.lines.map((l) => {
     const qtyMilli = toMilli(l.quantity);
@@ -283,8 +284,8 @@ export async function scanBill(
     const match = matchProduct({ description: l.description, itemCode: l.item_code }, products, aliases);
     const lastCost = match.productId ? (costs.get(match.productId) ?? null) : null;
     if (lastCost != null && qtyMilli && taxablePaise != null) {
-      const unitCost = (taxablePaise * 1000) / qtyMilli;
-      if (lastCost > 0 && Math.abs(unitCost - lastCost) / lastCost > 0.25) warnings.push(`Cost is very different from last time (₹${(lastCost / 100).toFixed(2)}) — check the unit and quantity`);
+      const unitCost = (taxablePaise * 100000) / qtyMilli; // cp, like the product's cost
+      if (lastCost > 0 && Math.abs(unitCost - lastCost) / lastCost > 0.25) warnings.push(`Cost is very different from last time (₹${formatCost(lastCost)}) — check the unit and quantity`);
     }
     return {
       description: l.description,
@@ -298,7 +299,7 @@ export async function scanBill(
       gstRateBp,
       lineTotalPaise: toPaise(l.line_total),
       match,
-      lastCostPaise: lastCost,
+      lastCostCp: lastCost,
       warnings,
     };
   });

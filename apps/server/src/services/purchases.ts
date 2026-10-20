@@ -140,9 +140,9 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
         const np = c.l.newProduct!;
         const sku = np.sku?.trim() || (await nextAutoSku(tx));
         const [p] = await tx<{ id: number }[]>`
-          insert into products (sku, name, category_id, unit_code, hsn, gst_rate_bp, sale_price_paise, cost_price_paise)
+          insert into products (sku, name, category_id, unit_code, hsn, gst_rate_bp, sale_price_paise, cost_price_cp)
           values (${sku}, ${np.name.trim()}, ${np.categoryId ?? null}, ${np.unitCode}, ${np.hsn?.trim() || c.l.hsn || null},
-                  ${c.l.gstRateBp}, ${np.salePricePaise ?? 0}, ${mulDivRound(c.l.taxablePaise, 1000, c.l.baseQtyMilli ?? c.l.qtyMilli)})
+                  ${c.l.gstRateBp}, ${np.salePricePaise ?? 0}, ${mulDivRound(c.l.taxablePaise, 100000, c.l.baseQtyMilli ?? c.l.qtyMilli)})
           on conflict do nothing
           returning id`;
         if (!p) throw new AppError(409, 'DUPLICATE_SKU', `A product with SKU ${sku} already exists`);
@@ -216,7 +216,7 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
           amount_mode: c.l.amountMode ?? 'excl',
           batch_code: c.l.batchCode?.trim() || null,
           packed_on: c.l.packedOn || null,
-          unit_cost_paise: mulDivRound(c.l.taxablePaise, 1000, c.base),
+          unit_cost_cp: mulDivRound(c.l.taxablePaise, 100000, c.base), // cost per base unit, 4 decimals
           taxable_paise: c.l.taxablePaise,
           gst_rate_bp: c.l.gstRateBp,
           cgst_paise: c.cgst,
@@ -237,7 +237,7 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
           kind: 'purchase',
           ref_type: 'purchase_invoice',
           ref_id: id,
-          unit_cost_paise: r.unit_cost_paise,
+          unit_cost_cp: r.unit_cost_cp,
           user_id: ctx.userId,
           device_id: ctx.deviceId,
         })),
@@ -248,13 +248,13 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
         for (const r of rows) {
           const p = byId.get(r.product_id)!;
           const onHand = Math.max(before.get(p.id) ?? 0, 0);
-          const next = weightedCost(onHand, p.cost_price_paise, r.qty_milli, r.unit_cost_paise);
+          const next = weightedCost(onHand, p.cost_price_cp, r.qty_milli, r.unit_cost_cp);
           before.set(p.id, onHand + r.qty_milli);
-          if (p.cost_price_paise === next) continue;
-          await tx`update products set cost_price_paise = ${next}, updated_at = now() where id = ${p.id}`;
+          if (p.cost_price_cp === next) continue;
+          await tx`update products set cost_price_cp = ${next}, updated_at = now() where id = ${p.id}`;
           await tx`insert into price_history (product_id, field, old_value, new_value, user_id, device_id)
-                   values (${p.id}, 'cost_price_paise', ${p.cost_price_paise}, ${next}, ${ctx.userId}, ${ctx.deviceId})`;
-          p.cost_price_paise = next;
+                   values (${p.id}, 'cost_price_cp', ${p.cost_price_cp}, ${next}, ${ctx.userId}, ${ctx.deviceId})`;
+          p.cost_price_cp = next;
         }
       }
 
@@ -340,8 +340,8 @@ export async function cancelPurchase(sql: Sql, ctx: Ctx, id: number, input: { re
     }
     const [dn] = await tx`select 1 from debit_notes where purchase_id = ${id} and status = 'posted' limit 1`;
     if (dn) throw new AppError(409, 'HAS_RETURNS', `${p.number} already has goods returned to the supplier, so it can't be cancelled.`);
-    const lines = await tx<{ product_id: number; qty_milli: number; unit_cost_paise: number }[]>`
-      select product_id, qty_milli, unit_cost_paise from purchase_lines where purchase_id = ${id}`;
+    const lines = await tx<{ product_id: number; qty_milli: number; unit_cost_cp: number }[]>`
+      select product_id, qty_milli, unit_cost_cp from purchase_lines where purchase_id = ${id}`;
     await lockProducts(tx, lines.map((l) => l.product_id));
     const settings = await getSettings(tx);
     if (!settings.allowNegativeStock) {
@@ -355,7 +355,7 @@ export async function cancelPurchase(sql: Sql, ctx: Ctx, id: number, input: { re
     }
     const cancelVoucherId = p.voucher_id ? await reverseVoucher(tx, ctx, p.voucher_id, istDate(), `Cancelled purchase ${p.number}: ${reason}`) : null;
     await tx`insert into stock_movements ${tx(
-      lines.map((l) => ({ product_id: l.product_id, qty_milli: -l.qty_milli, kind: 'purchase_return', ref_type: 'purchase_invoice', ref_id: id, unit_cost_paise: l.unit_cost_paise, reason: `Purchase cancelled: ${reason}`, user_id: ctx.userId, device_id: ctx.deviceId })),
+      lines.map((l) => ({ product_id: l.product_id, qty_milli: -l.qty_milli, kind: 'purchase_return', ref_type: 'purchase_invoice', ref_id: id, unit_cost_cp: l.unit_cost_cp, reason: `Purchase cancelled: ${reason}`, user_id: ctx.userId, device_id: ctx.deviceId })),
     )}`;
     await tx`update purchase_invoices set status = 'cancelled', cancel_reason = ${reason}, cancelled_at = now(), cancelled_by = ${ctx.userId},
              cancel_approved_by = ${approvedBy}, cancel_voucher_id = ${cancelVoucherId} where id = ${id}`;

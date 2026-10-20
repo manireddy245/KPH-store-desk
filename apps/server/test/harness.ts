@@ -60,8 +60,8 @@ export async function makeHarness(opts: { scanner?: ModelCaller; assistant?: Ass
   async function product(opts: { price?: number; qty?: number; maxDisc?: { type: 'pct' | 'amt'; value: number } | null; cost?: number } = {}) {
     const sku = `T-${tag}-${randomUUID().slice(0, 8)}`;
     const [p] = await app<{ id: number }[]>`
-      insert into products (sku, name, unit_code, gst_rate_bp, sale_price_paise, cost_price_paise, max_disc_type, max_disc_value)
-      values (${sku}, ${'Test ' + sku}, 'bag', 1800, ${opts.price ?? 100000}, ${opts.cost ?? 80000},
+      insert into products (sku, name, unit_code, gst_rate_bp, sale_price_paise, cost_price_cp, max_disc_type, max_disc_value)
+      values (${sku}, ${'Test ' + sku}, 'bag', 1800, ${opts.price ?? 100000}, ${(opts.cost ?? 80000) * 100},
               ${opts.maxDisc?.type ?? null}, ${opts.maxDisc?.value ?? null})
       returning id`;
     if ((opts.qty ?? 100) > 0) await app`insert into stock_movements (product_id, qty_milli, kind) values (${p!.id}, ${(opts.qty ?? 100) * 1000}, 'opening')`;

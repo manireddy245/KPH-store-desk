@@ -11,7 +11,7 @@ export interface ProductInput {
   hsn?: string | null;
   gstRateBp?: number;
   salePricePaise?: number;
-  costPricePaise?: number | null;
+  costPriceCp?: number | null;
   mrpPaise?: number | null;
   reorderLevelMilli?: number | null;
   maxDiscType?: 'pct' | 'amt' | null;
@@ -42,7 +42,7 @@ export interface UnitInput {
 }
 
 const PRICE_FIELDS: (keyof ProductInput)[] = ['salePricePaise', 'maxDiscType', 'maxDiscValue', 'priceIncludesTax'];
-const COST_FIELDS: (keyof ProductInput)[] = ['costPricePaise'];
+const COST_FIELDS: (keyof ProductInput)[] = ['costPriceCp'];
 
 const COLUMN: Record<string, string> = {
   sku: 'sku',
@@ -53,7 +53,7 @@ const COLUMN: Record<string, string> = {
   hsn: 'hsn',
   gstRateBp: 'gst_rate_bp',
   salePricePaise: 'sale_price_paise',
-  costPricePaise: 'cost_price_paise',
+  costPriceCp: 'cost_price_cp',
   mrpPaise: 'mrp_paise',
   reorderLevelMilli: 'reorder_level_milli',
   maxDiscType: 'max_disc_type',
@@ -108,7 +108,7 @@ function validate(input: ProductInput) {
   if ((input.maxDiscType == null) !== (input.maxDiscValue == null) && input.maxDiscType !== undefined && input.maxDiscValue !== undefined)
     throw new AppError(400, 'BAD_DISCOUNT', 'Give both the type and the value of the max discount, or neither');
   if (input.maxDiscType === 'pct' && input.maxDiscValue != null && input.maxDiscValue > 10000) throw new AppError(400, 'BAD_DISCOUNT', 'Max discount cannot be over 100%');
-  for (const k of ['salePricePaise', 'costPricePaise', 'mrpPaise', 'reorderLevelMilli', 'maxDiscValue', 'openingQtyMilli'] as const) {
+  for (const k of ['salePricePaise', 'costPriceCp', 'mrpPaise', 'reorderLevelMilli', 'maxDiscValue', 'openingQtyMilli'] as const) {
     const v = input[k];
     if (v != null && (!Number.isSafeInteger(v) || v < 0)) throw new AppError(400, 'BAD_NUMBER', `${k} must be zero or more`);
   }
@@ -130,7 +130,7 @@ export async function listProducts(
   const rows = await q`
     select * from (
       select p.id, p.sku, p.name, p.category_id, c.name as category_name, p.brand_id, b.name as brand_name, p.unit_code,
-             p.hsn, p.gst_rate_bp, p.sale_price_paise, p.price_includes_tax, p.cost_price_paise, p.mrp_paise,
+             p.hsn, p.gst_rate_bp, p.sale_price_paise, p.price_includes_tax, p.cost_price_cp, p.mrp_paise,
              p.reorder_level_milli, p.max_disc_type, p.max_disc_value, c.max_disc_type as cat_disc_type,
              c.max_disc_value as cat_disc_value, p.active, p.is_sample, p.updated_at, p.contents_milli, p.contents_unit, p.on_rate_board, p.track_batches,
              coalesce((select json_agg(json_build_object('unit_code', u.unit_code, 'factor_num', u.factor_num, 'factor_den', u.factor_den,
@@ -155,7 +155,7 @@ export async function listProducts(
     where (${f.stock ?? null}::text is null or stock_status = ${f.stock ?? null})
     order by lower(name)
     limit ${Math.min(f.limit ?? 2000, 5000)}`;
-  if (!can(ctx, 'products.view_cost')) for (const r of rows) delete r.cost_price_paise;
+  if (!can(ctx, 'products.view_cost')) for (const r of rows) delete r.cost_price_cp;
   return rows;
 }
 
@@ -171,11 +171,11 @@ export async function createProduct(sql: Sql, ctx: Ctx, input: ProductInput & { 
   try {
     return await sql.begin(async (tx) => {
       const [p] = await tx<{ id: number }[]>`
-        insert into products (sku, name, category_id, brand_id, unit_code, hsn, gst_rate_bp, sale_price_paise, cost_price_paise,
+        insert into products (sku, name, category_id, brand_id, unit_code, hsn, gst_rate_bp, sale_price_paise, cost_price_cp,
                               mrp_paise, reorder_level_milli, max_disc_type, max_disc_value, is_sample, price_includes_tax,
                               contents_milli, contents_unit, is_service)
         values (${input.sku.trim()}, ${input.name.trim()}, ${input.categoryId ?? null}, ${input.brandId ?? null}, ${input.unitCode},
-                ${input.hsn?.trim() || null}, ${input.gstRateBp ?? 1800}, ${input.salePricePaise ?? 0}, ${input.costPricePaise ?? null},
+                ${input.hsn?.trim() || null}, ${input.gstRateBp ?? 1800}, ${input.salePricePaise ?? 0}, ${input.costPriceCp ?? null},
                 ${input.mrpPaise ?? null}, ${input.reorderLevelMilli ?? null}, ${input.maxDiscType ?? null},
                 ${input.maxDiscValue ?? null}, ${opts.isSample ?? false}, ${input.priceIncludesTax ?? false},
                 ${input.contentsMilli ?? null}, ${input.contentsUnit ?? null}, ${input.isService ?? false})
@@ -183,8 +183,8 @@ export async function createProduct(sql: Sql, ctx: Ctx, input: ProductInput & { 
       const id = p!.id;
       if (input.units?.length) await saveUnits(tx, id, input.unitCode, input.units);
       if (input.openingQtyMilli && input.openingQtyMilli > 0 && !input.isService) {
-        await tx`insert into stock_movements (product_id, qty_milli, kind, unit_cost_paise, reason, user_id, device_id, at)
-                 values (${id}, ${input.openingQtyMilli}, 'opening', ${input.costPricePaise ?? null}, 'Opening stock', ${ctx.userId}, ${ctx.deviceId}, ${opts.openingAt ?? new Date()})`;
+        await tx`insert into stock_movements (product_id, qty_milli, kind, unit_cost_cp, reason, user_id, device_id, at)
+                 values (${id}, ${input.openingQtyMilli}, 'opening', ${input.costPriceCp ?? null}, 'Opening stock', ${ctx.userId}, ${ctx.deviceId}, ${opts.openingAt ?? new Date()})`;
       }
       await audit(tx, ctx, 'product.created', { entity: 'product', entityId: id, details: { sku: input.sku, name: input.name, openingQtyMilli: input.openingQtyMilli ?? 0 } });
       return { id };
@@ -222,7 +222,7 @@ export async function updateProduct(sql: Sql, ctx: Ctx, id: number, input: Produ
       }
       if (!Object.keys(changes).length) return { id, changed: false };
       if (Object.keys(set).length) await tx`update products set ${tx(set)}, updated_at = now() where id = ${id}`;
-      for (const f of ['sale_price_paise', 'cost_price_paise', 'mrp_paise'] as const) {
+      for (const f of ['sale_price_paise', 'cost_price_cp', 'mrp_paise'] as const) {
         if (f in set) {
           await tx`insert into price_history (product_id, field, old_value, new_value, user_id, device_id)
                    values (${id}, ${f}, ${(old[f] as number | null) ?? null}, ${(set[f] as number | null) ?? null}, ${ctx.userId}, ${ctx.deviceId})`;
@@ -232,7 +232,7 @@ export async function updateProduct(sql: Sql, ctx: Ctx, id: number, input: Produ
       await audit(tx, ctx, priceChanged ? 'product.price_changed' : 'product.updated', {
         entity: 'product',
         entityId: id,
-        details: { name: old.name, changes: can(ctx, 'products.view_cost') ? changes : omit(changes, 'costPricePaise') },
+        details: { name: old.name, changes: can(ctx, 'products.view_cost') ? changes : omit(changes, 'costPriceCp') },
       });
       return { id, changed: true };
     });
@@ -276,7 +276,7 @@ export async function adjustStock(sql: Sql, ctx: Ctx, productId: number, input: 
   const reason = input.reason?.trim() ?? '';
   if (reason.length < 3) throw new AppError(400, 'REASON_REQUIRED', 'Please give a reason for the stock change');
   return sql.begin(async (tx) => {
-    const [p] = await tx<{ id: number; name: string; cost_price_paise: number | null }[]>`select id, name, cost_price_paise from products where id = ${productId}`;
+    const [p] = await tx<{ id: number; name: string; cost_price_cp: number | null }[]>`select id, name, cost_price_cp from products where id = ${productId}`;
     if (!p) throw new AppError(404, 'NOT_FOUND', 'Product not found');
     const current = await lockedQty(tx, productId);
     let delta: number;
@@ -287,8 +287,8 @@ export async function adjustStock(sql: Sql, ctx: Ctx, productId: number, input: 
       delta = input.deltaMilli;
     } else throw new AppError(400, 'BAD_QTY', 'Enter the new quantity');
     if (delta === 0) return { productId, qtyMilli: current, changed: false };
-    await tx`insert into stock_movements (product_id, qty_milli, kind, unit_cost_paise, reason, user_id, device_id)
-             values (${productId}, ${delta}, 'adjustment', ${p.cost_price_paise}, ${reason}, ${ctx.userId}, ${ctx.deviceId})`;
+    await tx`insert into stock_movements (product_id, qty_milli, kind, unit_cost_cp, reason, user_id, device_id)
+             values (${productId}, ${delta}, 'adjustment', ${p.cost_price_cp}, ${reason}, ${ctx.userId}, ${ctx.deviceId})`;
     await audit(tx, ctx, 'stock.adjusted', {
       entity: 'product',
       entityId: productId,
@@ -316,7 +316,7 @@ async function lockedQty(tx: Tx, productId: number) {
 
 export async function stockCard(q: Q, ctx: Ctx, productId: number, limit = 300) {
   const rows = await q`
-    select m.id, m.at, m.kind, m.qty_milli, m.reason, m.ref_type, m.ref_id, m.unit_cost_paise,
+    select m.id, m.at, m.kind, m.qty_milli, m.reason, m.ref_type, m.ref_id, m.unit_cost_cp,
            u.name as user_name, d.name as device_name,
            case when m.ref_type = 'sales_invoice' then (select number from sales_invoices where id = m.ref_id) end as ref_number,
            sum(m.qty_milli) over (order by m.id) as running_milli
@@ -324,7 +324,7 @@ export async function stockCard(q: Q, ctx: Ctx, productId: number, limit = 300) 
     where m.product_id = ${productId}
     order by m.id desc
     limit ${limit}`;
-  if (!can(ctx, 'products.view_cost')) for (const r of rows) delete r.unit_cost_paise;
+  if (!can(ctx, 'products.view_cost')) for (const r of rows) delete r.unit_cost_cp;
   return rows;
 }
 

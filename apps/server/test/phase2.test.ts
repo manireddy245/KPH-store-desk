@@ -70,7 +70,7 @@ describe('units: steel stocked in rods, bought in tonnes', () => {
     expect(r.status).toBe(200);
     expect(await h.stockOf(rod)).toBe(470000);
     const d = (await stock.get(`/api/purchases/${r.body.id}`)).body;
-    expect(d.lines[0]).toMatchObject({ qty_milli: 470000, unit_code: 'rod', bill_unit_code: 'tonne', bill_qty_milli: 5000, unit_cost_paise: 59043 });
+    expect(d.lines[0]).toMatchObject({ qty_milli: 470000, unit_code: 'rod', bill_unit_code: 'tonne', bill_qty_milli: 5000, unit_cost_cp: 5904255 }); // ₹2,77,500 ÷ 470 rods = ₹590.4255
 
     const counted = await stock.post('/api/purchases', {
       supplierId: s.body.id,

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Insights } from './Stock';
 import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { exclFromIncl, formatPaise, formatPercent, formatQty, mulDivRound, parsePercent, parseQty, parseRupees, toBase } from '@kph/core';
+import { exclFromIncl, formatPaise, formatPercent, formatQty, mulDivRound, parsePercent, parseQty, parseRupees, toBase, formatCost } from '@kph/core';
 import { ApiError, get, post, store } from '../lib/api';
 import { todayIst, uuid } from '../lib/format';
 import { preparePage, type PreparedPage } from '../lib/images';
@@ -31,7 +31,7 @@ interface LineDraft {
   productId: number | null;
   newProduct: { name: string; unitCode: string } | null;
   match: MatchKind;
-  lastCostPaise: number | null;
+  lastCostCp: number | null;
   warnings: string[];
 }
 
@@ -66,7 +66,7 @@ interface ScanResult {
     taxablePaise: number | null;
     gstRateBp: number | null;
     match: { kind: MatchKind; productId: number | null };
-    lastCostPaise: number | null;
+    lastCostCp: number | null;
     warnings: string[];
   }[];
   freightPaise: number | null;
@@ -76,7 +76,7 @@ interface ScanResult {
 }
 
 const rs = (p: number | null | undefined) => (p == null ? '' : formatPaise(p).replace(/,/g, ''));
-const emptyLine = (): LineDraft => ({ key: uuid(), description: '', hsn: '', billUnit: null, qtyText: '', amountText: '', gstText: '18', productId: null, newProduct: null, match: 'manual', lastCostPaise: null, warnings: [] });
+const emptyLine = (): LineDraft => ({ key: uuid(), description: '', hsn: '', billUnit: null, qtyText: '', amountText: '', gstText: '18', productId: null, newProduct: null, match: 'manual', lastCostCp: null, warnings: [] });
 const emptyDraft = (): Draft => ({ clientRef: uuid(), scanId: null, pageCount: 0, supplierId: null, supplierRead: null, billNo: '', billDate: todayIst(), supplyType: 'intra', freightText: '', billTotalText: '', notes: '', scanNotes: null, duplicateOf: null, lines: [emptyLine()] });
 
 const UNIT_ALIASES: Record<string, string> = { bags: 'bag', bag: 'bag', nos: 'nos', no: 'nos', pcs: 'pcs', pc: 'pcs', kg: 'kg', kgs: 'kg', ton: 'tonne', tons: 'tonne', mt: 'tonne', tonne: 'tonne', ltr: 'ltr', l: 'ltr', litre: 'ltr', ltrs: 'ltr', mtr: 'mtr', m: 'mtr', coil: 'coil', coils: 'coil', box: 'box', set: 'set', sets: 'set', rod: 'rod', rods: 'rod', bundle: 'bundle', bundles: 'bundle', tin: 'tin', tins: 'tin', bucket: 'bucket', length: 'length', lengths: 'length', ft: 'ft' };
@@ -274,7 +274,7 @@ function fromScan(r: ScanResult): Draft {
       productId: l.match.productId,
       newProduct: null,
       match: l.match.kind,
-      lastCostPaise: l.lastCostPaise,
+      lastCostCp: l.lastCostCp,
       warnings: l.warnings,
     })),
   };
@@ -333,7 +333,7 @@ function Review({
     const half = ok ? mulDivRound(amount!, gst!, 20000) : 0;
     const igst = ok ? mulDivRound(amount!, gst!, 10000) : 0;
     const tax = draft.supplyType === 'inter' ? igst : 2 * half;
-    const unitCost = ok && base ? mulDivRound(amount!, 1000, base) : null;
+    const unitCost = ok && base ? mulDivRound(amount!, 100000, base) : null; // cost per unit, 4 decimals
     const ourUnit = p?.unit_code ?? l.newProduct?.unitCode ?? null;
     const billUnit = unitCode(l.billUnit);
     const unitWarn = billUnit && ourUnit && billUnit !== chosenUnit && billUnit !== ourUnit ? `Bill counts in ${l.billUnit}; enter the quantity in ${chosenUnit ?? ourUnit}${p ? '' : ''}.` : null;
@@ -342,7 +342,7 @@ function Review({
       ins && base != null && (ins.movement === 'slow' || ins.movement === 'dead') && Math.max(ins.stockMilli, 0) + base > ins.usualMaxMilli
         ? `${ins.movement === 'dead' ? 'Dead stock' : 'Slow mover'}: ${formatQty(Math.max(ins.stockMilli, 0))} ${ins.unit} already in stock${ins.lastSale ? `, last sold ${ins.daysSinceSale} days ago` : ', never sold'} — buying ${formatQty(base)} more is above its usual level.`
         : null;
-    const costWarn = unitCost != null && l.lastCostPaise && Math.abs(unitCost - l.lastCostPaise) / l.lastCostPaise > 0.25 ? `Cost ₹${formatPaise(unitCost)} is far from last time (₹${formatPaise(l.lastCostPaise)})` : null;
+    const costWarn = unitCost != null && l.lastCostCp && Math.abs(unitCost - l.lastCostCp) / l.lastCostCp > 0.25 ? `Cost ₹${formatCost(unitCost)} is far from last time (₹${formatCost(l.lastCostCp)})` : null;
     return { l, p, qty, typed, amount, gst, ok, half, igst, tax, unitCost, ourUnit, unitWarn, costWarn, overWarn, buyUnits, chosenUnit, base, converted, pu };
   });
   const taxable = rows.reduce((s, r) => s + (r.ok ? r.amount! : 0), 0);
@@ -512,7 +512,7 @@ function Review({
                     />
                     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                       <MatchBadge kind={r.l.newProduct ? 'new' : r.l.productId ? r.l.match : 'none'} />
-                      {r.l.lastCostPaise != null && <span className="text-ink-3">last cost ₹{formatPaise(r.l.lastCostPaise)}</span>}
+                      {r.l.lastCostCp != null && <span className="text-ink-3">last cost ₹{formatCost(r.l.lastCostCp)}</span>}
                     </div>
                     {r.p?.track_batches && (
                       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
@@ -561,7 +561,7 @@ function Review({
                   <div>
                     <div className="eyebrow lg:hidden">Amount {amountMode === 'incl' ? 'incl.' : 'excl.'} GST</div>
                     <Input aria-label={`Amount ${amountMode === 'incl' ? 'including' : 'excluding'} GST`} inputMode="decimal" value={r.l.amountText} onChange={(e) => setLine(r.l.key, { amountText: e.target.value })} className={cx('num h-9 text-right', r.amount == null && 'border-bad')} />
-                    <div className="num mt-0.5 text-right text-[11px] text-cement">{r.unitCost != null ? `₹${formatPaise(r.unitCost)} / ${r.ourUnit ?? 'unit'}` : ''}</div>
+                    <div className="num mt-0.5 text-right text-[11px] text-cement">{r.unitCost != null ? `₹${formatCost(r.unitCost)} / ${r.ourUnit ?? 'unit'}` : ''}</div>
                   </div>
                   <div>
                     <div className="eyebrow lg:hidden">GST %</div>

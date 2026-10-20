@@ -142,7 +142,7 @@ export async function seedSample(sql: Sql) {
         hsn,
         gstRateBp: 1800,
         salePricePaise: Math.round(sale * 100),
-        costPricePaise: Math.round(cost * 100),
+        costPriceCp: Math.round(cost * 10000),
         openingQtyMilli: qty * 1000,
         reorderLevelMilli: reorder * 1000,
         maxDiscType: disc?.type ?? null,

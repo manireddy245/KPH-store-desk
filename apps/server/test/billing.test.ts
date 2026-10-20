@@ -32,7 +32,7 @@ describe('saving a bill', () => {
     const inv = (await counter.get(`/api/invoices/${r.body.id}`)).body;
     // 3 × 385.50 = 1156.50; CGST = SGST = 104.09 (104.085 → 104.09); total 1364.68 → 1365.00, round off +0.32
     expect(inv).toMatchObject({ taxable_paise: 115650, cgst_paise: 10409, sgst_paise: 10409, total_paise: 136500, round_off_paise: 32, status: 'posted' });
-    expect(inv.lines[0].cost_price_paise).toBeUndefined(); // counter staff can't see cost
+    expect(inv.lines[0].cost_price_cp).toBeUndefined(); // counter staff can't see cost
     expect(await h.stockOf(p)).toBe(7000);
 
     const lines = await h.app<{ dr: number; cr: number }[]>`
@@ -259,7 +259,7 @@ describe('permissions', () => {
     expect((await counter.post(`/api/products/${p}/adjust`, { newQtyMilli: 5000, reason: 'count' })).status).toBe(403);
     expect((await counter.patch(`/api/products/${p}`, { salePricePaise: 1 })).status).toBe(403);
     const list = (await counter.get('/api/products')).body;
-    expect(list[0]).not.toHaveProperty('cost_price_paise');
+    expect(list[0]).not.toHaveProperty('cost_price_cp');
     expect((await counter.get('/api/users')).status).toBe(403);
     expect((await counter.put('/api/settings', { idleLockMinutes: 9 })).status).toBe(403);
     expect((await counter.post('/api/backups/run')).status).toBe(403);

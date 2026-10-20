@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { exclFromIncl, formatPaise, formatPercent, formatQty, inclFromExcl, parsePercent, parseQty, parseRupees, standardRodsPerTonne } from '@kph/core';
+import { exclFromIncl, formatPaise, formatPercent, formatQty, inclFromExcl, parsePercent, parseQty, parseRupees, standardRodsPerTonne, formatCost, parseCost } from '@kph/core';
 import { ApiError, del, get, patch, post } from '../lib/api';
 import { csvCell, downloadText, fmtDateTime } from '../lib/format';
 import { useSession } from '../lib/session';
@@ -47,7 +47,7 @@ export function Inventory() {
   const exportCsv = () => {
     const head = ['SKU', 'Name', 'Category', 'Brand', 'Unit', 'HSN', 'GST %', 'Price excl GST', 'Cost', 'MRP', 'Stock', 'Reorder level'];
     const lines = rows.map((p) =>
-      [p.sku, p.name, p.category_name, p.brand_name, p.unit_code, p.hsn, formatPercent(p.gst_rate_bp), formatPaise(p.sale_price_paise), p.cost_price_paise != null ? formatPaise(p.cost_price_paise) : '', p.mrp_paise != null ? formatPaise(p.mrp_paise) : '', formatQty(p.qty_milli), p.reorder_level_milli != null ? formatQty(p.reorder_level_milli) : '']
+      [p.sku, p.name, p.category_name, p.brand_name, p.unit_code, p.hsn, formatPercent(p.gst_rate_bp), formatPaise(p.sale_price_paise), p.cost_price_cp != null ? formatCost(p.cost_price_cp) : '', p.mrp_paise != null ? formatPaise(p.mrp_paise) : '', formatQty(p.qty_milli), p.reorder_level_milli != null ? formatQty(p.reorder_level_milli) : '']
         .map(csvCell)
         .join(','),
     );
@@ -167,7 +167,7 @@ export function Inventory() {
                   </div>
                 ))}
               </td>
-              {can('products.view_cost') && <td className="num text-right text-ink-3">{p.cost_price_paise != null ? formatPaise(p.cost_price_paise) : '—'}</td>}
+              {can('products.view_cost') && <td className="num text-right text-ink-3">{p.cost_price_cp != null ? formatCost(p.cost_price_cp) : '—'}</td>}
               <td className="num text-right">
                 {p.max_disc_type ? (p.max_disc_type === 'pct' ? `${formatPercent(p.max_disc_value!)}%` : `₹${formatPaise(p.max_disc_value!)} / ${p.unit_code}`) : p.cat_disc_type ? <span className="text-ink-3">{p.cat_disc_type === 'pct' ? `${formatPercent(p.cat_disc_value!)}%` : `₹${formatPaise(p.cat_disc_value!)}`} · cat.</span> : <span className="text-ink-3">0%</span>}
               </td>
@@ -282,7 +282,7 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
             hsn: product.hsn ?? '',
             gst: formatPercent(product.gst_rate_bp),
             price: formatPaise(product.sale_price_paise).replace(/,/g, ''),
-            cost: product.cost_price_paise != null ? formatPaise(product.cost_price_paise).replace(/,/g, '') : '',
+            cost: product.cost_price_cp != null ? formatCost(product.cost_price_cp).replace(/,/g, '') : '',
             mrp: product.mrp_paise != null ? formatPaise(product.mrp_paise).replace(/,/g, '') : '',
             reorder: product.reorder_level_milli != null ? formatQty(product.reorder_level_milli) : '',
             discType: product.max_disc_type ?? '',
@@ -335,7 +335,11 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
       body.maxDiscValue = f.discType ? (f.discType === 'pct' ? parsePercent(f.disc ?? '') : parseRupees(f.disc ?? '')) : null;
       if (f.discType && body.maxDiscValue == null) return setError('Max discount is not valid');
     }
-    if (canCost) body.costPricePaise = money(f.cost);
+    if (canCost) {
+      const c = f.cost?.trim() ? parseCost(f.cost) : null;
+      if (f.cost?.trim() && c == null) return setError('Cost price is not a valid amount (up to 4 decimals, e.g. 57.2034)');
+      body.costPriceCp = c;
+    }
     if (canPrice) body.priceIncludesTax = inclMode;
     body.contentsMilli = f.contents?.trim() ? parseQty(f.contents) : null;
     body.isService = f.service === '1';

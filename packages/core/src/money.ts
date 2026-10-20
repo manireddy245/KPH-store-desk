@@ -109,3 +109,35 @@ export function formatPercent(bp: BasisPoints): string {
   const frac = bp % 100;
   return frac === 0 ? String(whole) : `${whole}.${String(frac).padStart(2, '0').replace(/0+$/, '')}`;
 }
+
+/**
+ * Cost prices carry 4 decimals: whole numbers of 1/10,000 rupee ("cp"), e.g. ₹57.2034 = 572034.
+ * Exact integers, never floats. Bills, GST and totals stay in paise.
+ */
+export type CostCp = number;
+export const CP_PER_PAISA = 100;
+
+/** "57.2034" / "₹1,200.5" → cost in cp, up to 4 decimals; null if not a valid amount. */
+export function parseCost(input: string | number): CostCp | null {
+  const s = String(input).replace(/[₹,\s]/g, '').replace(/^Rs\.?/i, '');
+  if (!/^(\d+(\.\d{0,4})?|\.\d{1,4})$/.test(s)) return null;
+  const [whole = '0', frac = ''] = s.split('.');
+  return Number(whole || '0') * 10000 + Number((frac + '0000').slice(0, 4));
+}
+
+/** 572034 → "57.2034", 3000000 → "300.00" (at least 2 decimals, up to 4; Indian grouping). */
+export function formatCost(cp: CostCp): string {
+  const neg = cp < 0;
+  const abs = Math.abs(cp);
+  const rupees = Math.floor(abs / 10000);
+  let frac = String(abs % 10000).padStart(4, '0');
+  if (frac.endsWith('00')) frac = frac.slice(0, 2);
+  else if (frac.endsWith('0')) frac = frac.slice(0, 3);
+  const s = inr.format(rupees).replace(/\.00$/, '') + '.' + frac;
+  return (neg ? '-' : '') + s;
+}
+
+/** Value at cost, in paise: quantity (milli) × cost (cp), rounded to the paisa. */
+export function costValuePaise(qtyMilli: Milli, cp: CostCp): Paise {
+  return mulDivRound(qtyMilli, cp, 1000 * CP_PER_PAISA);
+}

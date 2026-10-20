@@ -102,6 +102,40 @@ export function readBackup(buf: Buffer): BackupFile {
   return data;
 }
 
+/** Columns renamed since older backups were made: old name → new name, and the factor for the value. */
+const RENAMED: Record<string, { from: string; to: string; times: number }[]> = {
+  // migration 016: costs went from paise to 1/10,000 rupee (4 decimals)
+  products: [{ from: 'cost_price_paise', to: 'cost_price_cp', times: 100 }],
+  stock_movements: [{ from: 'unit_cost_paise', to: 'unit_cost_cp', times: 100 }],
+  sales_invoice_lines: [{ from: 'cost_price_paise', to: 'cost_price_cp', times: 100 }],
+  purchase_lines: [{ from: 'unit_cost_paise', to: 'unit_cost_cp', times: 100 }],
+};
+
+/** Bring rows from an older backup up to today's columns. */
+export function upgradeRows(table: string, rows: Record<string, unknown>[]) {
+  const renames = RENAMED[table];
+  const out = renames && rows.length && renames.some((r) => r.from in rows[0]!)
+    ? rows.map((row) => {
+        const x = { ...row };
+        for (const r of renames) {
+          if (!(r.from in x)) continue;
+          const v = x[r.from];
+          x[r.to] = v == null ? null : Number(v) * r.times;
+          delete x[r.from];
+        }
+        return x;
+      })
+    : rows;
+  if (table === 'price_history') {
+    return out.map((row) =>
+      row.field === 'cost_price_paise'
+        ? { ...row, field: 'cost_price_cp', old_value: row.old_value == null ? null : Number(row.old_value) * 100, new_value: row.new_value == null ? null : Number(row.new_value) * 100 }
+        : row,
+    );
+  }
+  return out;
+}
+
 /**
  * Replace ALL data in the database with the backup. The caller makes a
  * "pre-restore" backup first. Secret settings (Gemini key) on this computer are kept.
@@ -116,7 +150,7 @@ export async function restoreBackupData(owner: Sql, data: BackupFile) {
     await tx.unsafe(`set local session_replication_role = replica`);
     await tx.unsafe(`truncate ${[...BACKUP_TABLES, 'sessions'].join(', ')} restart identity cascade`);
     for (const t of BACKUP_TABLES) {
-      const rows = (data.tables[t] ?? []) as Record<string, unknown>[];
+      const rows = upgradeRows(t, (data.tables[t] ?? []) as Record<string, unknown>[]);
       for (let i = 0; i < rows.length; i += 500) {
         const chunk = rows.slice(i, i + 500);
         await tx`insert into ${tx(t)} ${tx(chunk as never)}`;

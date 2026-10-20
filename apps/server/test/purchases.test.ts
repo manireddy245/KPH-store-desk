@@ -48,13 +48,13 @@ describe('entering a purchase', () => {
     const d = (await stock.get(`/api/purchases/${r.body.id}`)).body;
     // 58,400 + 9% + 9% (5,256 each) + 200 freight = 69,112
     expect(d).toMatchObject({ taxable_paise: 5840000, cgst_paise: 525600, sgst_paise: 525600, freight_paise: 20000, total_paise: 6911200, status: 'posted' });
-    expect(d.lines[0]).toMatchObject({ unit_cost_paise: 29200, qty_milli: 200000 });
+    expect(d.lines[0]).toMatchObject({ unit_cost_cp: 2920000, qty_milli: 200000 });
     expect((await supplierPayable()) - before).toBe(6911200);
 
-    const [m] = await h.app`select kind, qty_milli, unit_cost_paise from stock_movements where product_id = ${p} and kind = 'purchase'`;
-    expect(m).toMatchObject({ qty_milli: 200000, unit_cost_paise: 29200 });
-    const [pr] = await h.app`select cost_price_paise from products where id = ${p}`;
-    expect(pr!.cost_price_paise).toBe(29143); // weighted average: (10 × ₹280 + 200 × ₹292) ÷ 210
+    const [m] = await h.app`select kind, qty_milli, unit_cost_cp from stock_movements where product_id = ${p} and kind = 'purchase'`;
+    expect(m).toMatchObject({ qty_milli: 200000, unit_cost_cp: 2920000 });
+    const [pr] = await h.app`select cost_price_cp from products where id = ${p}`;
+    expect(pr!.cost_price_cp).toBe(2914286); // weighted average: (10 × ₹280 + 200 × ₹292) ÷ 210 = ₹291.4286
     const [v] = await h.app`select sum(dr_paise) dr, sum(cr_paise) cr from voucher_lines where voucher_id = ${d.voucher_id}`;
     expect(v!.dr).toBe(v!.cr);
     const [alias] = await h.app`select product_id from product_aliases where supplier_id = ${supplierId} and alias = 'ultratech ppc 50kg'`;
@@ -89,8 +89,8 @@ describe('entering a purchase', () => {
     const ok = await admin.post('/api/purchases', bill({ lines: [newLine] }));
     expect(ok.status).toBe(200);
     expect(ok.body.createdProducts).toHaveLength(1);
-    const [np] = await h.app`select sku, cost_price_paise, hsn from products where id = ${ok.body.createdProducts[0]}`;
-    expect(np).toMatchObject({ cost_price_paise: 33000, hsn: '2523' });
+    const [np] = await h.app`select sku, cost_price_cp, hsn from products where id = ${ok.body.createdProducts[0]}`;
+    expect(np).toMatchObject({ cost_price_cp: 3300000, hsn: '2523' });
     expect(np!.sku).toMatch(/^NEW-/);
     expect(await h.stockOf(ok.body.createdProducts[0])).toBe(50000);
   });

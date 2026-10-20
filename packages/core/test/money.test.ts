@@ -89,3 +89,20 @@ describe('formatting', () => {
     expect(formatPercent(1)).toBe('0.01');
   });
 });
+
+describe('cost with 4 decimals', () => {
+  it('parses and formats exactly', async () => {
+    const { parseCost, formatCost, costValuePaise } = await import('../src/money.js');
+    expect(parseCost('57.2034')).toBe(572034);
+    expect(parseCost('₹1,200.5')).toBe(12005000);
+    expect(parseCost('300')).toBe(3000000);
+    expect(parseCost('1.23456')).toBeNull();
+    expect(parseCost('-5')).toBeNull();
+    expect(formatCost(572034)).toBe('57.2034');
+    expect(formatCost(572030)).toBe('57.203');
+    expect(formatCost(3000000)).toBe('300.00');
+    expect(formatCost(123456789000)).toBe('1,23,45,678.90');
+    // 1.525 ton at ₹57,203.39 per ton = ₹87,235.17 (exactly what the supplier bill says)
+    expect(costValuePaise(1525, 572033900)).toBe(8723517);
+  });
+});

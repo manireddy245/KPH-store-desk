@@ -39,6 +39,10 @@ For the owner and whoever runs the books. The phase guides have the details; thi
 - **Services** (loading / unloading, transport, cutting…): Inventory → Add product → tick **"This is a service"**, and put its SAC code (loading / unloading is 996749) in the HSN box. Services carry GST but never count as stock, are left out of stock counts and reorder lists, and can't be put on a purchase.
 - The **"Authorised dealers for"** brand logos are at the foot of every bill. Turn them off in Settings → GST & invoices. The logos were taken from each company's own website. For crisp printing and to be safe on brand rules, ask your distributors for their official dealer logo files and give them to the developer.
 
+## Cost prices
+- Cost can be typed with up to **4 decimals** (e.g. ₹57.2034 a kg), in Inventory and in the Excel import. Purchases work out the cost per unit to 4 decimals by themselves.
+- This keeps stock value and profit exact for items bought by the ton and sold by the kg or rod. Bills, GST and totals are always to the paisa (2 decimals).
+
 ## Settings worth checking once
 - **Shop & billing:**
   - shop details on bills, invoice prefix

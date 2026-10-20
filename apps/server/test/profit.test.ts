@@ -64,7 +64,7 @@ describe('profit', () => {
 
   it('stock value at cost, today and on an earlier date', async () => {
     const d = (await admin.get(`/api/reports/stock-value?asOf=${today}`)).body;
-    expect(d.rows.find((x: { id: number }) => x.id === A)).toMatchObject({ qty: 91_000, cost: 80_000, value: 7_280_000 });
+    expect(d.rows.find((x: { id: number }) => x.id === A)).toMatchObject({ qty: 91_000, cost: 8_000_000, value: 7_280_000 });
     const old = (await admin.get('/api/reports/stock-value?asOf=2020-01-01')).body;
     expect(old.rows.find((x: { id: number }) => x.id === A)).toBeUndefined();
   });
