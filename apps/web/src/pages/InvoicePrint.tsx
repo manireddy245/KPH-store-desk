@@ -339,7 +339,8 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
       </table>
       {hasIncl && <div className="-mt-2 text-[8pt] text-ink-3">* rate includes GST</div>}
 
-      <div className="flex justify-between gap-6">
+      {/* GST working and totals sit at the bottom of the page, just above the signature */}
+      <div className="mt-auto flex justify-between gap-6 border-t border-line pt-3">
         <div className="min-w-0 flex-1">
           <table className="num border-collapse text-[8.5pt] [&_td]:border-b [&_td]:border-line [&_td]:px-1.5 [&_td]:py-1 [&_th]:border-y-[1.5px] [&_th]:border-ink [&_th]:px-1.5 [&_th]:py-1 [&_th]:text-left [&_th]:text-[7.5pt] [&_th]:font-bold [&_th]:uppercase">
             <thead>
@@ -410,7 +411,7 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
         </div>
       </div>
 
-      <div className="mt-auto flex items-end justify-between gap-6 border-t border-line pt-3">
+      <div className="flex items-end justify-between gap-6 border-t border-line pt-3">
         <div className="max-w-[420px] text-[8.5pt] text-ink-2">
           {d.kind === 'invoice' && d.store.terms && (
             <>
@@ -419,12 +420,13 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
           )}
           <div className="mt-1.5 text-ink-3">{d.footer} · Computer-generated document</div>
         </div>
-        <div className="text-center text-[9pt]">
-          <div className="h-10" />
-          <div className="border-t border-ink pt-1">
-            For {d.store.name}
-            <br />
-            {L('Authorised signatory')}
+        {/* bottom right: "For", room to sign, then the shop's name under the signature */}
+        <div className="flex w-[250px] flex-col text-[9.5pt]">
+          <span>For</span>
+          <div className="h-16" />
+          <div className="border-t border-ink pt-1 text-center">
+            <b className="uppercase tracking-[.02em]">{d.store.name}</b>
+            <div className="text-[8pt] text-ink-3">{L('Authorised signatory')}</div>
           </div>
         </div>
       </div>

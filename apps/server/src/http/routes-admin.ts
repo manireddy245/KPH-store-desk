@@ -67,7 +67,7 @@ export async function registerAdminRoutes(app: FastifyInstance, { db, live }: Sh
         invoiceLabels: z.enum(['en', 'te-en']),
         backupCopyDir: z.string().max(400),
         backupPassphrase: z.string().refine((v) => v === '' || v.length >= 8, 'The passphrase must be at least 8 characters'),
-        shopCloseHour: z.number().int().min(0).max(23),
+        shopCloseTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Closing time looks like 20:30'),
         ownerPhone: z.string().max(20),
         ownerEmail: z.string().max(100).refine((v) => v === '' || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v), 'E-mail looks wrong'),
         insightDays: z.number().int().min(7).max(180),

@@ -18,7 +18,7 @@ export interface StoreSettings {
   idleLockMinutes: number;
   discountHintEnabled: boolean;
   allowNegativeStock: boolean;
-  /** Hour (0–23, India time) for the automatic daily backup. */
+  /** No longer used: the daily backup is made at closing time (kept so old saved settings still load). */
   autoBackupHour: number;
   geminiApiKey: string;
   /** Gemini model used by the invoice scanner; change it here when Google retires a model. */
@@ -38,8 +38,8 @@ export interface StoreSettings {
   backupCopyDir: string;
   /** Passphrase that encrypts the copies. Never backed up or shown. */
   backupPassphrase: string;
-  /** Hour (India time) when the shop closes: the daily summary is made then. */
-  shopCloseHour: number;
+  /** Closing time (India time, HH:MM): the daily backup and the owner's summary are made then. */
+  shopCloseTime: string;
   /** Owner's WhatsApp number and e-mail for the daily summary (optional). */
   ownerPhone: string;
   ownerEmail: string;
@@ -101,9 +101,9 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   quoteValidDays: 15,
   backupCopyDir: '',
   backupPassphrase: '',
-  shopCloseHour: 20,
-  ownerPhone: '',
-  ownerEmail: '',
+  shopCloseTime: '20:30',
+  ownerPhone: '9440930271',
+  ownerEmail: 'malyadrireddy.munagala@gmail.com',
   insightDays: 30,
   deadStockDays: 60,
   targetDaysDefault: 15,

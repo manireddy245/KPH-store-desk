@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { istDate } from '@kph/core';
 import { readBackup } from '../src/services/backup.js';
 import { decryptBackup, encryptBackup, isEncrypted } from '../src/services/backupcopy.js';
+import { lastClosing } from '../src/services/owner.js';
 import { makeHarness } from './harness.js';
 
 let h: Awaited<ReturnType<typeof makeHarness>>;
@@ -93,5 +94,19 @@ describe('owner day and daily summary', () => {
     const got = (await admin.get(`/api/owner/summary?date=${today}`)).body;
     expect(got.en).toBe(made.body.en);
     expect((await admin.get('/api/owner/summaries')).body[0].date).toBe(today);
+  });
+});
+
+describe('closing time (server PC switched off at night)', () => {
+  // 20:30 IST = 15:00 UTC
+  it('after closing, today is the last closing; before it, yesterday', () => {
+    expect(lastClosing('20:30', new Date('2026-10-20T15:10:00Z'))).toEqual({ at: new Date('2026-10-20T15:00:00Z'), date: '2026-10-20' });
+    expect(lastClosing('20:30', new Date('2026-10-20T04:00:00Z'))).toEqual({ at: new Date('2026-10-19T15:00:00Z'), date: '2026-10-19' });
+    // just after midnight IST it is still the previous day's closing
+    expect(lastClosing('20:30', new Date('2026-10-20T18:45:00Z'))).toEqual({ at: new Date('2026-10-20T15:00:00Z'), date: '2026-10-20' });
+  });
+  it('closing time is saved as HH:MM; a wrong value is refused', async () => {
+    expect((await admin.put('/api/settings', { shopCloseTime: '20:30' })).status).toBe(200);
+    expect((await admin.put('/api/settings', { shopCloseTime: '8.30pm' })).status).toBe(400);
   });
 });

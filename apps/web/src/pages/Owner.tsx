@@ -139,7 +139,7 @@ export function Owner() {
                 ))}
               </span>
             </div>
-            <p className="text-[13px] text-ink-3">Made automatically at closing time (Settings → shop closes at). Send it to yourself or the family.</p>
+            <p className="text-[13px] text-ink-3">Made automatically at closing time (Settings → Shop closes at), or the next morning if the PC was off. Send it to yourself or the family.</p>
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" busy={busy} onClick={() => void summary('whatsapp')}>
                 WhatsApp

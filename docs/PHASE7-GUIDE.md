@@ -10,7 +10,7 @@ Made for the owner's phone. When someone with the reports permission opens Store
 - Use the date box at the top to see any earlier day.
 
 ## Daily summary
-- Made by itself every evening after the shop closes. Set the closing hour in Settings → Shop & billing → **Shop closes at**. The default is 8 pm.
+- Made by itself at closing time: Settings → Shop & billing → **Shop closes at** (8:30 pm). If the PC was switched off before then, it is made the next morning when the PC starts.
 - On the Owner page, pick **తెలుగు** or **English**, then press:
   - **WhatsApp:** opens WhatsApp with the summary, addressed to the owner's number (Settings → **Owner's WhatsApp number**)
   - **E-mail:** opens your mail app

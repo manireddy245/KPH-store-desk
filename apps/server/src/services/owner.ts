@@ -11,6 +11,20 @@ import { getSettings } from './settings.js';
 
 const r = (p: number) => `₹${formatPaise(p).replace(/\.00$/, '')}`;
 
+/**
+ * The latest shop closing that has already happened (closing time is India time, "HH:MM"):
+ * today's if it is past closing now, otherwise yesterday's. Returns the moment and its shop day.
+ */
+export function lastClosing(closeTime: string, now = new Date()): { at: Date; date: string } {
+  const [h, m] = closeTime.split(':').map(Number) as [number, number];
+  const today = istDate(now);
+  const [y, mo, d] = today.split('-').map(Number) as [number, number, number];
+  const todayClose = new Date(Date.UTC(y, mo - 1, d, h, m) - 5.5 * 3600000);
+  if (now >= todayClose) return { at: todayClose, date: today };
+  const at = new Date(todayClose.getTime() - 24 * 3600000);
+  return { at, date: istDate(at) };
+}
+
 export async function ownerDay(q: Q, ctx: Ctx | null, date = istDate()) {
   if (ctx && !can(ctx, 'reports.view')) throw new AppError(403, 'FORBIDDEN', 'Only the owner / admin can see this');
   const s = await getSettings(q);

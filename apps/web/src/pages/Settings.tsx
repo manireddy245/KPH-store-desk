@@ -70,13 +70,12 @@ interface StoreSettingsDto {
   idleLockMinutes: number;
   discountHintEnabled: boolean;
   allowNegativeStock: boolean;
-  autoBackupHour: number;
   geminiApiKeySet: boolean;
   geminiModel: string;
   purchasePrefix: string;
   ownerPhone: string;
   ownerEmail: string;
-  shopCloseHour: number;
+  shopCloseTime: string;
   insightDays: number;
   deadStockDays: number;
   targetDaysDefault: number;
@@ -117,12 +116,11 @@ function StoreSettings() {
       idle: String(s.idleLockMinutes),
       hint: s.discountHintEnabled,
       negative: s.allowNegativeStock,
-      backupHour: String(s.autoBackupHour),
       geminiModel: s.geminiModel,
       purchasePrefix: s.purchasePrefix,
       ownerPhone: s.ownerPhone,
       ownerEmail: s.ownerEmail,
-      shopCloseHour: String(s.shopCloseHour),
+      shopCloseTime: s.shopCloseTime,
       insightDays: String(s.insightDays),
       deadStockDays: String(s.deadStockDays),
       targetDaysDefault: String(s.targetDaysDefault),
@@ -158,12 +156,11 @@ function StoreSettings() {
         idleLockMinutes: Number(f.idle),
         discountHintEnabled: !!f.hint,
         allowNegativeStock: !!f.negative,
-        autoBackupHour: Number(f.backupHour),
         geminiModel: String(f.geminiModel).trim(),
         purchasePrefix: String(f.purchasePrefix).toUpperCase().trim(),
         ownerPhone: String(f.ownerPhone ?? '').trim(),
         ownerEmail: String(f.ownerEmail ?? '').trim(),
-        shopCloseHour: Number(f.shopCloseHour),
+        shopCloseTime: String(f.shopCloseTime ?? '20:30'),
         insightDays: Number(f.insightDays),
         deadStockDays: Number(f.deadStockDays),
         targetDaysDefault: Number(f.targetDaysDefault),
@@ -245,9 +242,6 @@ function StoreSettings() {
           <Field label="Lock screen after (minutes idle)">
             <Input value={String(f.idle ?? '')} onChange={t('idle')} inputMode="numeric" />
           </Field>
-          <Field label="Daily automatic backup after (hour, 0–23)">
-            <Input value={String(f.backupHour ?? '')} onChange={t('backupHour')} inputMode="numeric" />
-          </Field>
           <div className="flex flex-col justify-end gap-2 sm:col-span-2">
             <Checkbox label="Show the discreet max-discount hint (e.g. “D8”) on the billing screen" checked={!!f.hint} onChange={(v) => setF((x) => ({ ...x, hint: v }))} />
             <Checkbox label="Allow billing more than the stock shown (not recommended)" checked={!!f.negative} onChange={(v) => setF((x) => ({ ...x, negative: v }))} />
@@ -271,8 +265,8 @@ function StoreSettings() {
           <Field label="Owner's e-mail (optional)">
             <Input value={String(f.ownerEmail ?? '')} onChange={t('ownerEmail')} inputMode="email" />
           </Field>
-          <Field label="Shop closes at (hour, 0–23)" hint="The day's summary is made after this hour">
-            <Input value={String(f.shopCloseHour ?? '')} onChange={t('shopCloseHour')} inputMode="numeric" />
+          <Field label="Shop closes at" hint="The day's backup and summary are made then. PC switched off earlier? They're made when it starts next.">
+            <Input type="time" value={String(f.shopCloseTime ?? '')} onChange={t('shopCloseTime')} />
           </Field>
           <Field label="Quotation valid for (days)">
             <Input value={String(f.quoteValidDays ?? '')} onChange={t('quoteValidDays')} inputMode="numeric" />
@@ -1175,7 +1169,7 @@ function DataBackups() {
     <div className="grid gap-4 lg:grid-cols-2">
       <Card title="Backups" actions={<Button variant="primary" busy={busy === 'backup'} onClick={backupNow}>Back up now</Button>}>
         <p className="mb-3 text-sm text-ink-3">
-          A backup is made automatically every day. The last 30 automatic backups are kept in <span className="font-mono text-xs">{q.data?.dir}</span>, and an encrypted copy goes to the second place below. The Gemini key and the backup passphrase are never included.
+          A backup is made automatically every day at closing time (or when the PC starts next, if it was off). The last 30 automatic backups are kept in <span className="font-mono text-xs">{q.data?.dir}</span>, and an encrypted copy goes to the second place below. The Gemini key and the backup passphrase are never included.
         </p>
         <div className="-mx-4 -mb-4 max-h-80 overflow-auto">
           <Table
