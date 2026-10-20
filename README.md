@@ -106,6 +106,7 @@ House rules the code keeps:
 
 **Start here:**
 - [Setup guide](docs/SETUP-GUIDE.md): run it, let someone test it remotely, set up the shop
+- [Cloud server plan](docs/CLOUD-PLAN.md): run the whole app on a rented server in India — costs, steps, decisions
 - [Staff guide (English + Telugu)](docs/STAFF-GUIDE.md)
 - [Admin guide](docs/ADMIN-GUIDE.md)
 
