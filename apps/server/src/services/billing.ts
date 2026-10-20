@@ -59,6 +59,65 @@ export interface InvoiceInput {
   /** Trade partner (painter, mason…) who brought this bill, and their site. */
   partnerId?: number | null;
   siteId?: number | null;
+  /** Ship-to, customer PAN and delivery boxes printed on the bill (all optional). */
+  details?: InvoiceDetailsInput;
+}
+
+export interface InvoiceDetailsInput {
+  shipToName?: string | null;
+  shipToAddress?: string | null;
+  shipToContact?: string | null;
+  shipToPhone?: string | null;
+  customerPan?: string | null;
+  deliveryNote?: string | null;
+  reference?: string | null;
+  otherReferences?: string | null;
+  dispatchedThrough?: string | null;
+  destination?: string | null;
+  termsOfDelivery?: string | null;
+}
+
+const DETAIL_COLUMNS: Record<keyof InvoiceDetailsInput, string> = {
+  shipToName: 'ship_to_name',
+  shipToAddress: 'ship_to_address',
+  shipToContact: 'ship_to_contact',
+  shipToPhone: 'ship_to_phone',
+  customerPan: 'customer_pan',
+  deliveryNote: 'delivery_note',
+  reference: 'reference',
+  otherReferences: 'other_references',
+  dispatchedThrough: 'dispatched_through',
+  destination: 'destination',
+  termsOfDelivery: 'terms_of_delivery',
+};
+
+/** Trimmed details as table columns; blanks become null. */
+function detailRow(d: InvoiceDetailsInput) {
+  const row: Record<string, string | null> = {};
+  for (const [k, col] of Object.entries(DETAIL_COLUMNS)) {
+    const v = d[k as keyof InvoiceDetailsInput];
+    if (v === undefined) continue;
+    const t = v?.trim() || null;
+    row[col] = col === 'customer_pan' && t ? t.toUpperCase() : t;
+  }
+  if (row.customer_pan && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(row.customer_pan)) throw new AppError(400, 'BAD_PAN', 'PAN should be 10 characters, e.g. ABCDE1234F');
+  return row;
+}
+
+/** Add or correct the ship-to, PAN and delivery details of a saved bill (they are not tax figures, so they may change). */
+export async function saveInvoiceDetails(sql: Sql, ctx: Ctx, invoiceId: number, input: InvoiceDetailsInput) {
+  requirePerm(ctx, 'billing.create');
+  const row = detailRow(input);
+  return sql.begin(async (tx) => {
+    const [inv] = await tx<{ number: string }[]>`select number from sales_invoices where id = ${invoiceId}`;
+    if (!inv) throw new AppError(404, 'NOT_FOUND', 'Bill not found');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const full: Record<string, any> = { invoice_id: invoiceId, ...row, updated_by: ctx.userId, updated_at: new Date() };
+    const cols = Object.keys(full).filter((k) => k !== 'invoice_id');
+    await tx`insert into invoice_details ${tx(full)} on conflict (invoice_id) do update set ${tx(full, ...cols)}`;
+    await audit(tx, ctx, 'invoice.details_changed', { entity: 'sales_invoice', entityId: invoiceId, details: { number: inv.number, ...row } });
+    return { ok: true };
+  });
 }
 
 export interface ProductForBill {
@@ -74,6 +133,8 @@ export interface ProductForBill {
   active: boolean;
   max_disc_type: 'pct' | 'amt' | null;
   max_disc_value: number | null;
+  /** A service (loading charges, transport…): billed like an item but no stock. */
+  is_service: boolean;
   cat_disc_type: 'pct' | 'amt' | null;
   cat_disc_value: number | null;
   units: { unit_code: string; factor_num: number; factor_den: number; for_sale: boolean; for_purchase?: boolean; price_paise: number | null }[];
@@ -115,7 +176,7 @@ export function listRate(p: Pick<ProductForBill, 'sale_price_paise' | 'price_inc
 }
 
 export const PRODUCT_FOR_BILL_COLUMNS = `
-  p.id, p.sku, p.name, p.hsn, p.unit_code, p.gst_rate_bp, p.sale_price_paise, p.price_includes_tax, p.cost_price_paise, p.active,
+  p.id, p.sku, p.name, p.hsn, p.unit_code, p.gst_rate_bp, p.sale_price_paise, p.price_includes_tax, p.cost_price_paise, p.active, p.is_service,
   p.max_disc_type, p.max_disc_value, c.max_disc_type as cat_disc_type, c.max_disc_value as cat_disc_value,
   coalesce((select json_agg(json_build_object('unit_code', u.unit_code, 'factor_num', u.factor_num, 'factor_den', u.factor_den,
             'for_sale', u.for_sale, 'for_purchase', u.for_purchase, 'price_paise', u.price_paise)) from product_units u where u.product_id = p.id), '[]'::json) as units`;
@@ -162,6 +223,7 @@ async function saveInvoice(
     const existing = await findExisting(tx);
     if (existing) return existing;
     const settings = await getSettings(tx);
+    const details = input.details ? detailRow(input.details) : {};
     const productIds = [...new Set(input.lines.map((l) => l.productId))].sort((a, b) => a - b);
     const products = await tx.unsafe<ProductForBill[]>(
       `select ${PRODUCT_FOR_BILL_COLUMNS} from products p left join categories c on c.id = p.category_id where p.id = any($1::int[])`,
@@ -193,7 +255,7 @@ async function saveInvoice(
       select product_id, qty_milli from stock_balances where product_id in ${tx(productIds)}`;
     const available = new Map(balances.map((b) => [b.product_id, b.qty_milli]));
     const needed = new Map<number, number>();
-    for (const r of resolved) needed.set(r.p.id, (needed.get(r.p.id) ?? 0) + r.baseMilli);
+    for (const r of resolved) if (!r.p.is_service) needed.set(r.p.id, (needed.get(r.p.id) ?? 0) + r.baseMilli);
     if (!settings.allowNegativeStock) {
       const short = [...needed]
         .filter(([id, qty]) => qty > (available.get(id) ?? 0))
@@ -364,8 +426,9 @@ async function saveInvoice(
       }),
     )}`;
 
-    await tx`insert into stock_movements ${tx(
-      prepared.map(({ p, baseMilli }) => ({
+    const goods = prepared.filter(({ p }) => !p.is_service);
+    if (goods.length) await tx`insert into stock_movements ${tx(
+      goods.map(({ p, baseMilli }) => ({
         product_id: p.id,
         qty_milli: -baseMilli,
         kind: 'sale',
@@ -377,6 +440,10 @@ async function saveInvoice(
         at,
       })),
     )}`;
+
+    if (Object.values(details).some((v) => v)) {
+      await tx`insert into invoice_details ${tx({ invoice_id: id, ...details, updated_by: ctx.userId })}`;
+    }
 
     if (input.partnerId) await tagInvoicePartner(tx, ctx, id, input.partnerId, input.siteId ?? null);
 
@@ -416,12 +483,16 @@ export async function getInvoice(q: Q, id: number, opts: { withCost?: boolean } 
     where si.id = ${id}`;
   if (!inv) throw new AppError(404, 'NOT_FOUND', 'Bill not found');
   const lines = await q`
-    select l.*, coalesce((select sum(cl.qty_milli) from credit_note_lines cl join credit_notes cn on cn.id = cl.credit_note_id
+    select l.*, (select p.is_service from products p where p.id = l.product_id) as is_service, coalesce((select sum(cl.qty_milli) from credit_note_lines cl join credit_notes cn on cn.id = cl.credit_note_id
                           where cl.invoice_line_id = l.id and cn.status = 'posted'), 0) as returned_qty_milli
     from sales_invoice_lines l where l.invoice_id = ${id} order by l.line_no`;
   if (!opts.withCost) for (const l of lines) delete l.cost_price_paise;
   const creditNotes = await q`select id, number, note_date, total_paise, status from credit_notes where invoice_id = ${id} order by id`;
-  return { ...inv, lines, credit_notes: creditNotes };
+  const [details] = await q`select * from invoice_details where invoice_id = ${id}`;
+  // Printed when the bill's own boxes are blank: the quotation it came from, and its delivery challans.
+  const [quote] = await q<{ number: string; quote_date: string }[]>`select number, quote_date::text from quotations where converted_invoice_id = ${id} limit 1`;
+  const challans = await q<{ number: string }[]>`select number from deliveries where invoice_id = ${id} and status <> 'cancelled' order by id`;
+  return { ...inv, lines, credit_notes: creditNotes, details: details ?? null, quotation: quote ?? null, challans: challans.map((c) => c.number) };
 }
 
 export async function listInvoices(
@@ -472,8 +543,9 @@ export async function cancelInvoice(sql: Sql, ctx: Ctx, id: number, input: { rea
       ? await reverseVoucher(tx, ctx, inv.voucher_id, date, `Cancelled bill ${inv.number}: ${reason}`)
       : null;
     const lines = await tx<{ product_id: number; base_qty_milli: number; cost_price_paise: number | null }[]>`
-      select product_id, base_qty_milli, cost_price_paise from sales_invoice_lines where invoice_id = ${id}`;
-    await tx`insert into stock_movements ${tx(
+      select l.product_id, l.base_qty_milli, l.cost_price_paise from sales_invoice_lines l join products p on p.id = l.product_id
+      where l.invoice_id = ${id} and not p.is_service`;
+    if (lines.length) await tx`insert into stock_movements ${tx(
       lines.map((l) => ({
         product_id: l.product_id,
         qty_milli: l.base_qty_milli,

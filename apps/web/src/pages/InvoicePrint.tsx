@@ -1,15 +1,16 @@
 import { useEffect, type ReactNode } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { amountInWords, formatPaise, formatPercent, formatQty, stateName, taxSummaryByHsn } from '@kph/core';
+import { amountInWords, formatPaise, formatPercent, formatQty, stateName } from '@kph/core';
 import { get } from '../lib/api';
 import { MODE_LABEL, fmtDate, fmtDateTime } from '../lib/format';
 import type { InvoiceFull } from '../lib/types';
 import { Button, LogoMark, Spinner, cx } from '../components/ui';
 
 /**
- * A4 tax invoice and credit note. Provisional layout until the shop sends its
- * preferred format. The max-discount hint is never shown here.
+ * A4 tax invoice and credit note, as approved by the owner (Claude Design "KPH Tax Invoice"):
+ * GST rate and amount on every line, ship-to, the delivery boxes when filled in, and the
+ * "Authorised dealers for" brand row. The max-discount hint is never shown here.
  * ?copies=3 prints Original / Duplicate / Triplicate; ?auto=1 opens the print dialog.
  */
 
@@ -18,20 +19,30 @@ const T: Record<string, string> = {
   'TAX INVOICE': 'పన్ను బిల్లు',
   'CREDIT NOTE': 'క్రెడిట్ నోట్',
   'Bill to': 'కొనుగోలుదారు',
-  'Invoice no.': 'బిల్లు నెం.',
-  'Credit note no.': 'క్రెడిట్ నోట్ నెం.',
-  Date: 'తేదీ',
-  'Place of supply': 'సరఫరా స్థలం',
+  'Ship to': 'సరుకు పంపే చోటు',
   Item: 'వస్తువు',
   Qty: 'పరిమాణం',
   Rate: 'ధర',
   Amount: 'మొత్తం',
-  Total: 'మొత్తం',
   'Amount in words': 'అక్షరాలలో',
   'Authorised signatory': 'అధీకృత సంతకం',
   Terms: 'నిబంధనలు',
 };
 const COPIES = ['Original for recipient', 'Duplicate for transporter', 'Triplicate for supplier'];
+
+/** Brands the shop deals in, shown at the foot of the bill. Logos come from each company's own website. */
+const BRANDS: ({ name: string; src: string; h: number; mono?: boolean } | { name: string; word: string; sub: string })[] = [
+  { name: 'UltraTech Cement', src: '/brands/ultratech.jpeg', h: 34 },
+  { name: 'Asian Paints', src: '/brands/asianpaints.png', h: 30 },
+  { name: 'Birla Opus', src: '/brands/birlaopus.svg', h: 30 },
+  { name: 'Birla White', src: '/brands/birlawhite.svg', h: 30 },
+  { name: 'JSW Steel', src: '/brands/jsw.svg', h: 28 },
+  { name: 'Legrand', src: '/brands/legrand.png', h: 20, mono: true },
+  { name: 'Ultra Volt', word: 'ULTRA VOLT', sub: 'WIRES & CABLES' },
+  { name: 'Birla Pivot', src: '/brands/birlapivot.webp', h: 30 },
+  { name: 'Astral Pipes', src: '/brands/astral.png', h: 28, mono: true },
+  { name: 'Sudhakar Pipes', word: 'SUDHAKAR', sub: 'PIPES' },
+];
 
 interface CreditNoteFull {
   id: number;
@@ -61,17 +72,38 @@ interface CreditNoteFull {
   store: InvoiceFull['store'];
 }
 
+interface DocLine {
+  no: number;
+  name: string;
+  code: string | null;
+  service: boolean;
+  qtyMilli: number;
+  unit: string;
+  rate: string | null;
+  disc: string;
+  taxable: number;
+  gst: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  amount: number;
+  note?: string;
+}
+
 interface Doc {
   kind: 'invoice' | 'credit_note';
   title: string;
   number: string;
   at: string;
   cancelled: boolean;
-  customer: { name: string | null; address: string | null; phone: string | null; gstin: string | null };
+  customer: { name: string | null; address: string | null; phone: string | null; gstin: string | null; pan: string | null };
+  shipTo: { name: string | null; address: string | null; contact: string | null; phone: string | null } | null;
   pos: string;
   supply: 'intra' | 'inter';
-  extra: [string, string][];
-  lines: { no: number; name: string; hsn: string | null; qty: string; rate: string; disc: string; taxable: number; gst: number; amount: number; cgst: number; sgst: number; igst: number; qtyMilli: number; note?: string }[];
+  facts: [string, string][];
+  /** The delivery boxes: only those with something in them. */
+  boxes: [string, string][];
+  lines: DocLine[];
   taxable: number;
   cgst: number;
   sgst: number;
@@ -83,36 +115,50 @@ interface Doc {
   store: InvoiceFull['store'];
 }
 
+const filled = (pairs: [string, string | null | undefined][]) => pairs.filter((p): p is [string, string] => !!p[1]?.trim());
+
 function fromInvoice(d: InvoiceFull): Doc {
+  const x = d.details;
+  const ship = x && (x.ship_to_name || x.ship_to_address || x.ship_to_contact || x.ship_to_phone) ? { name: x.ship_to_name, address: x.ship_to_address, contact: x.ship_to_contact, phone: x.ship_to_phone } : null;
   return {
     kind: 'invoice',
     title: 'TAX INVOICE',
     number: d.number,
     at: d.at,
     cancelled: d.status === 'cancelled',
-    customer: { name: d.customer_name, address: d.customer_address, phone: d.customer_phone, gstin: d.customer_gstin },
+    customer: { name: d.customer_name, address: d.customer_address, phone: d.customer_phone, gstin: d.customer_gstin, pan: x?.customer_pan ?? null },
+    shipTo: ship,
     pos: d.place_of_supply,
     supply: d.supply_type ?? 'intra',
-    extra: [
+    facts: filled([
       ['Payment', MODE_LABEL[d.payment_mode] ?? d.payment_mode],
       ['Reverse charge', 'No'],
-      ...(d.transport?.ewb_no ? ([['E-way bill', `${d.transport.ewb_no}${d.transport.ewb_date ? ` · ${fmtDate(d.transport.ewb_date)}` : ''}`]] as [string, string][]) : []),
-      ...(d.transport?.vehicle_no ? ([['Vehicle', d.transport.vehicle_no]] as [string, string][]) : []),
-    ],
+      ['E-way bill', d.transport?.ewb_no ? `${d.transport.ewb_no.replace(/(\d{4})(?=\d)/g, '$1 ')}${d.transport.ewb_date ? ` · ${fmtDate(d.transport.ewb_date)}` : ''}` : null],
+      ['Vehicle', d.transport?.vehicle_no ?? null],
+    ]),
+    boxes: filled([
+      ['Delivery note', x?.delivery_note || (d.challans?.length ? d.challans.join(', ') : null)],
+      ['Reference', x?.reference || (d.quotation ? `${d.quotation.number} · ${fmtDate(d.quotation.quote_date)}` : null)],
+      ['Other references', x?.other_references],
+      ['Dispatched through', x?.dispatched_through],
+      ['Destination', x?.destination || d.transport?.to_place],
+      ['Terms of delivery', x?.terms_of_delivery],
+    ]),
     lines: d.lines.map((l) => ({
       no: l.line_no,
       name: l.product_name,
-      hsn: l.hsn,
-      qty: `${formatQty(l.qty_milli)} ${l.unit_code}`,
+      code: l.hsn,
+      service: !!l.is_service || !!l.hsn?.startsWith('99'),
+      qtyMilli: l.qty_milli,
+      unit: l.unit_code,
       rate: `${formatPaise(l.rate_paise)}${l.rate_mode === 'incl' ? '*' : ''}`,
       disc: l.discount_bp ? `${formatPercent(l.discount_bp)}%` : '—',
       taxable: l.taxable_paise,
       gst: l.gst_rate_bp,
-      amount: l.amount_paise ?? l.total_paise,
       cgst: l.cgst_paise,
       sgst: l.sgst_paise,
       igst: l.igst_paise,
-      qtyMilli: l.qty_milli,
+      amount: l.amount_paise ?? l.total_paise,
     })),
     taxable: d.taxable_paise,
     cgst: d.cgst_paise,
@@ -133,28 +179,31 @@ function fromCreditNote(d: CreditNoteFull): Doc {
     number: d.number,
     at: d.at,
     cancelled: d.status === 'cancelled',
-    customer: { name: d.customer_name, address: d.customer_address, phone: d.customer_phone, gstin: d.customer_gstin },
+    customer: { name: d.customer_name, address: d.customer_address, phone: d.customer_phone, gstin: d.customer_gstin, pan: null },
+    shipTo: null,
     pos: d.place_of_supply,
     supply: d.supply_type,
-    extra: [
-      ['Against invoice', `${d.invoice_number} of ${fmtDate(d.invoice_date)}`],
+    facts: filled([
+      ['Against bill', `${d.invoice_number} of ${fmtDate(d.invoice_date)}`],
       ['Reason', d.reason],
       ['Refund', d.refund_mode === 'account' ? 'Credited to account' : (MODE_LABEL[d.refund_mode] ?? d.refund_mode)],
-    ],
+    ]),
+    boxes: [],
     lines: d.lines.map((l) => ({
       no: l.line_no,
       name: l.product_name,
-      hsn: l.hsn,
-      qty: `${formatQty(l.qty_milli)} ${l.unit_code}`,
+      code: l.hsn,
+      service: !!l.hsn?.startsWith('99'),
+      qtyMilli: l.qty_milli,
+      unit: l.unit_code,
       rate: formatPaise(l.rate_paise),
       disc: '',
       taxable: l.taxable_paise,
       gst: l.gst_rate_bp,
-      amount: l.total_paise,
       cgst: l.cgst_paise,
       sgst: l.sgst_paise,
       igst: l.igst_paise,
-      qtyMilli: l.qty_milli,
+      amount: l.total_paise,
       note: l.restocked ? undefined : 'damaged',
     })),
     taxable: d.taxable_paise,
@@ -189,7 +238,7 @@ function DocPrint({ kind }: { kind: 'invoice' | 'credit_note' }) {
   useEffect(() => {
     if (d && params.get('auto')) {
       document.title = d.number.replace(/\//g, '-');
-      const t = setTimeout(() => window.print(), 400);
+      const t = setTimeout(() => window.print(), 600);
       return () => clearTimeout(t);
     }
   }, [d, params]);
@@ -203,7 +252,7 @@ function DocPrint({ kind }: { kind: 'invoice' | 'credit_note' }) {
 
   return (
     <div className="min-h-screen bg-concrete print:bg-white">
-      <style>{`@page { size: A4; margin: 12mm; } @media print { .sheet { box-shadow: none !important; margin: 0 !important; width: auto !important; min-height: auto !important; padding: 0 !important; break-after: page; } .sheet:last-child { break-after: auto; } }`}</style>
+      <style>{`@page { size: A4; margin: 10mm; } @media print { .sheet { box-shadow: none !important; margin: 0 !important; width: auto !important; min-height: 277mm !important; padding: 0 !important; break-after: page; } .sheet:last-child { break-after: auto; } }`}</style>
       <div className="no-print mx-auto flex max-w-[794px] flex-wrap items-center justify-between gap-2 px-2 py-3">
         <span className="text-sm text-ink-3">Use “Save as PDF” in the print window to make a PDF.</span>
         <div className="flex flex-wrap gap-2">
@@ -225,6 +274,15 @@ function DocPrint({ kind }: { kind: 'invoice' | 'credit_note' }) {
   );
 }
 
+/** "1.525 ton · 100 bag · 3 coil": goods only, per unit, in the order they appear. */
+function totalQuantity(lines: DocLine[]) {
+  const by = new Map<string, number>();
+  for (const l of lines) if (!l.service) by.set(l.unit, (by.get(l.unit) ?? 0) + l.qtyMilli);
+  return [...by].map(([u, q]) => `${formatQty(q)} ${u}`).join(' · ');
+}
+
+const MUTED = 'text-[#6b675f]';
+
 function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
   const labels: Labels = d.store.labels ?? 'en';
   const L = (en: string): ReactNode =>
@@ -235,201 +293,318 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
     ) : (
       en
     );
-  const hsn = taxSummaryByHsn(d.lines.map((l) => ({ hsn: l.hsn, gstRateBp: l.gst, qtyMilli: l.qtyMilli, taxablePaise: l.taxable, cgstPaise: l.cgst, sgstPaise: l.sgst, igstPaise: l.igst })));
   const nameParts = d.store.name.match(/^(\S+)\s+(.*)$/);
   const inter = d.supply === 'inter';
-  const hasIncl = d.lines.some((l) => l.rate.endsWith('*'));
+  const hasIncl = d.lines.some((l) => l.rate?.endsWith('*'));
+  const tax = d.cgst + d.sgst + d.igst;
+  const qty = totalQuantity(d.lines);
+  const isInvoice = d.kind === 'invoice';
+  const th = 'px-1 py-[5px] text-[10px] font-semibold text-ink-2 align-bottom';
+  const td = 'px-1 py-[5px] text-right align-top whitespace-nowrap';
+  const sep = 'border-l border-[#e4e0d8]';
 
   return (
-    <div className="sheet relative mx-auto mb-8 flex min-h-[1123px] w-[794px] flex-col gap-3.5 bg-white px-11 py-10 text-[10pt] shadow-lg">
+    <div className="sheet relative mx-auto mb-8 flex min-h-[1123px] w-[794px] flex-col gap-2.5 bg-white px-11 pb-9 pt-[38px] text-[12.5px] leading-[1.4] text-ink shadow-lg [font-variant-numeric:tabular-nums]">
       {d.cancelled && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
           <span className="rotate-[-24deg] rounded border-4 border-bad px-6 py-2 text-6xl font-extrabold tracking-widest text-bad/40">CANCELLED</span>
         </div>
       )}
-      <div className="flex items-start justify-between gap-5 border-b-[3px] border-brick pb-3.5">
+
+      {/* header */}
+      <div className="flex items-start justify-between gap-6 border-b-2 border-brick pb-2.5">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
-            <LogoMark size={62} title={d.store.name} />
-            <span className="flex flex-col leading-[1.02]">
-              <span className="text-[26pt] font-extrabold tracking-[.02em]" style={{ fontStretch: '75%' }}>
+            <LogoMark size={58} title={d.store.name} />
+            <span className="flex flex-col leading-none">
+              <span className="text-[30px] font-extrabold tracking-[.02em]" style={{ fontStretch: '75%' }}>
                 {(nameParts?.[1] ?? d.store.name).toUpperCase()}
               </span>
-              <span className="text-[7.5pt] font-semibold tracking-[.3em] text-ink-2">{(nameParts?.[2] ?? '').toUpperCase().replace(' AND ', ' & ')}</span>
+              <span className="mt-[3px] text-[10px] font-semibold tracking-[.32em] text-ink-2">{(nameParts?.[2] ?? '').toUpperCase().replace(' AND ', ' & ')}</span>
             </span>
           </div>
-          <div className="text-[9pt] leading-[1.45] text-ink-2">
+          <div className="text-[12px] leading-[1.5] text-ink-2">
             {d.store.address}
             <br />
-            {d.store.phone && <>Phone {d.store.phone} · </>}GSTIN <b className="text-ink">{d.store.gstin || '—'}</b> · State: {d.store.stateName} ({d.store.stateCode})
+            {d.store.phone && <>Phone {d.store.phone} · </>}GSTIN <b className="text-ink">{d.store.gstin || '—'}</b> · State code {d.store.stateCode}
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-[20pt] font-extrabold tracking-[.04em]" style={{ fontStretch: '75%' }}>
+        <div className="flex flex-col items-end gap-[3px] text-right">
+          <span className="text-[24px] font-extrabold leading-none tracking-[.05em]" style={{ fontStretch: '75%' }}>
             {d.title}
-          </div>
-          {labels === 'te-en' && T[d.title] && <div className="telugu text-[10pt] font-semibold text-brick">{T[d.title]}</div>}
-          <div className="text-[8.5pt] text-ink-3">{copyLabel}</div>
-          {d.customer.gstin && <div className="mt-1 inline-block rounded-[3px] bg-ink px-1.5 text-[8pt] font-bold text-white">B2B</div>}
+          </span>
+          {labels === 'te-en' && T[d.title] && <span className="telugu text-[11px] font-semibold text-brick">{T[d.title]}</span>}
+          <span className={cx('text-[12px]', MUTED)}>{copyLabel}</span>
+          <span className="mt-2 text-[15px] font-bold">{d.number}</span>
+          <span className="text-[12px] text-ink-2">{fmtDateTime(d.at)}</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <div className="text-[8pt] font-bold uppercase tracking-[.14em] text-ink-3">{L('Bill to')}</div>
-          <div className="text-[11pt] font-bold">{d.customer.name ?? 'Walk-in customer'}</div>
-          {d.customer.address && <div>{d.customer.address}</div>}
-          {d.customer.phone && <div>Phone {d.customer.phone}</div>}
+      {/* bill to / ship to / facts */}
+      <div className="grid grid-cols-3 gap-6">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[12px] font-bold text-brick">{L('Bill to')}</span>
+          <span className="text-[14px] font-bold">{d.customer.name ?? 'Walk-in customer'}</span>
+          {d.customer.address && <span>{d.customer.address}</span>}
+          {d.customer.phone && <span>Phone {d.customer.phone}</span>}
           {d.customer.gstin && (
-            <div>
-              GSTIN <b>{d.customer.gstin}</b> · State {stateName(d.customer.gstin.slice(0, 2))} ({d.customer.gstin.slice(0, 2)})
-            </div>
+            <span>
+              GSTIN <b>{d.customer.gstin}</b>
+            </span>
+          )}
+          {d.customer.pan && (
+            <span>
+              PAN <b>{d.customer.pan}</b>
+            </span>
           )}
         </div>
-        <div className="num grid grid-cols-[auto_1fr] content-start gap-x-3 gap-y-0.5">
-          <span className="text-ink-3">{L(d.kind === 'invoice' ? 'Invoice no.' : 'Credit note no.')}</span>
-          <b>{d.number}</b>
-          <span className="text-ink-3">{L('Date')}</span>
-          <span>{fmtDateTime(d.at)}</span>
-          <span className="text-ink-3">{L('Place of supply')}</span>
+        <div className="flex flex-col gap-0.5">
+          {d.shipTo && (
+            <>
+              <span className="text-[12px] font-bold text-brick">{L('Ship to')}</span>
+              {d.shipTo.name && <span className="text-[14px] font-bold">{d.shipTo.name}</span>}
+              {d.shipTo.address && <span>{d.shipTo.address}</span>}
+              {(d.shipTo.contact || d.shipTo.phone) && <span>{[d.shipTo.contact, d.shipTo.phone].filter(Boolean).join(' · ')}</span>}
+            </>
+          )}
+        </div>
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] content-start gap-x-3 gap-y-[3px]">
+          <span className={MUTED}>Place of supply</span>
           <span>
             {stateName(d.pos)} ({d.pos})
           </span>
-          {d.extra.map(([k, v]) => (
+          {d.facts.map(([k, v]) => (
             <span key={k} className="contents">
-              <span className="text-ink-3">{k}</span>
+              <span className={MUTED}>{k}</span>
               <span>{v}</span>
             </span>
           ))}
         </div>
       </div>
 
-      <table className="w-full border-collapse [&_td]:border-b [&_td]:border-line [&_td]:px-1.5 [&_td]:py-1.5 [&_td]:align-top [&_th]:border-y-[1.5px] [&_th]:border-ink [&_th]:px-1.5 [&_th]:py-1.5 [&_th]:text-left [&_th]:align-bottom [&_th]:text-[8pt] [&_th]:font-bold [&_th]:uppercase [&_th]:tracking-[.04em]">
+      {/* delivery boxes, only when filled in */}
+      {d.boxes.length > 0 && (
+        <div className="grid grid-cols-3 gap-x-6 gap-y-1.5 rounded-[6px] bg-[#f5f3ee] px-3.5 py-2">
+          {d.boxes.map(([k, v]) => (
+            <div key={k} className="flex flex-col">
+              <span className={cx('text-[12px]', MUTED)}>{k}</span>
+              <span className="font-semibold">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* items, with GST on every line */}
+      <table className="w-full border-collapse text-[10px]">
         <thead>
           <tr>
-            <th>#</th>
-            <th>{L('Item')}</th>
-            <th>HSN</th>
-            <th className="!text-right">{L('Qty')}</th>
-            <th className="!text-right">{L('Rate')}</th>
-            {d.kind === 'invoice' && <th className="!text-right">Disc</th>}
-            <th className="!text-right">Taxable</th>
-            <th className="!text-right">GST</th>
-            <th className="!text-right">{L('Amount')}</th>
+            <th rowSpan={2} className={cx(th, 'w-[18px] border-b-[1.5px] border-ink text-left')}>
+              #
+            </th>
+            <th rowSpan={2} className={cx(th, 'border-b-[1.5px] border-ink text-left')}>
+              {L('Item')}
+            </th>
+            <th rowSpan={2} className={cx(th, 'border-b-[1.5px] border-ink text-right')}>
+              {L('Qty')}
+            </th>
+            <th rowSpan={2} className={cx(th, 'border-b-[1.5px] border-ink text-right')}>
+              {L('Rate')}
+            </th>
+            {isInvoice && (
+              <th rowSpan={2} className={cx(th, 'border-b-[1.5px] border-ink text-right')}>
+                Disc
+              </th>
+            )}
+            <th rowSpan={2} className={cx(th, 'border-b-[1.5px] border-ink text-right')}>
+              Taxable value
+            </th>
+            {inter ? (
+              <th colSpan={2} className={cx(th, sep, 'border-b border-[#e4e0d8] text-center')}>
+                IGST
+              </th>
+            ) : (
+              <>
+                <th colSpan={2} className={cx(th, sep, 'border-b border-[#e4e0d8] text-center')}>
+                  CGST
+                </th>
+                <th colSpan={2} className={cx(th, sep, 'border-b border-[#e4e0d8] text-center')}>
+                  SGST
+                </th>
+              </>
+            )}
+            <th rowSpan={2} className={cx(th, sep, 'border-b-[1.5px] border-ink text-right')}>
+              {L('Amount')}
+            </th>
+          </tr>
+          <tr>
+            {(inter ? [1] : [1, 2]).map((k) => (
+              <SubHeads key={k} th={th} sep={sep} />
+            ))}
           </tr>
         </thead>
-        <tbody className="num text-[9.5pt]">
+        <tbody>
           {d.lines.map((l) => (
-            <tr key={l.no}>
-              <td>{l.no}</td>
-              <td>
-                {l.name}
-                {l.note && <span className="text-ink-3"> ({l.note})</span>}
+            <tr key={l.no} className="border-b border-[#e4e0d8]">
+              <td className="px-1 py-[5px] align-top">{l.no}</td>
+              <td className="px-1 py-[5px]">
+                <div className="font-semibold">
+                  {l.name}
+                  {l.note && <span className={cx('font-normal', MUTED)}> ({l.note})</span>}
+                </div>
+                {l.code && <div className={MUTED}>{(l.service ? 'SAC ' : 'HSN ') + l.code}</div>}
               </td>
-              <td>{l.hsn}</td>
-              <td className="text-right">{l.qty}</td>
-              <td className="text-right">{l.rate}</td>
-              {d.kind === 'invoice' && <td className="text-right">{l.disc}</td>}
-              <td className="text-right">{formatPaise(l.taxable)}</td>
-              <td className="text-right">{formatPercent(l.gst)}%</td>
-              <td className="text-right">{formatPaise(l.amount)}</td>
+              <td className={td}>{l.service && l.qtyMilli === 1000 ? '' : `${formatQty(l.qtyMilli)} ${l.unit}`}</td>
+              <td className={td}>
+                {l.service && l.qtyMilli === 1000 ? (
+                  ''
+                ) : (
+                  <>
+                    {l.rate}
+                    <div className={MUTED}>per {l.unit}</div>
+                  </>
+                )}
+              </td>
+              {isInvoice && <td className={cx(td, l.disc === '—' && MUTED)}>{l.disc}</td>}
+              <td className={td}>{formatPaise(l.taxable)}</td>
+              {inter ? (
+                <>
+                  <td className={cx(td, sep, 'text-ink-2')}>{formatPercent(l.gst)}%</td>
+                  <td className={td}>{formatPaise(l.igst)}</td>
+                </>
+              ) : (
+                <>
+                  <td className={cx(td, sep, 'text-ink-2')}>{formatPercent(l.gst / 2)}%</td>
+                  <td className={td}>{formatPaise(l.cgst)}</td>
+                  <td className={cx(td, sep, 'text-ink-2')}>{formatPercent(l.gst / 2)}%</td>
+                  <td className={td}>{formatPaise(l.sgst)}</td>
+                </>
+              )}
+              <td className={cx(td, sep, 'font-semibold')}>{formatPaise(l.amount)}</td>
             </tr>
           ))}
         </tbody>
+        <tfoot>
+          <tr className="border-b-[1.5px] border-ink font-bold">
+            <td className="px-1 py-1.5" />
+            <td className="px-1 py-1.5">Total</td>
+            <td colSpan={isInvoice ? 3 : 2} className="whitespace-nowrap px-1 py-1.5 text-right font-semibold">
+              {qty}
+            </td>
+            <td className="px-1 py-1.5 text-right">{formatPaise(d.taxable)}</td>
+            {inter ? (
+              <td colSpan={2} className={cx('px-1 py-1.5 text-right', sep)}>
+                {formatPaise(d.igst)}
+              </td>
+            ) : (
+              <>
+                <td colSpan={2} className={cx('px-1 py-1.5 text-right', sep)}>
+                  {formatPaise(d.cgst)}
+                </td>
+                <td colSpan={2} className={cx('px-1 py-1.5 text-right', sep)}>
+                  {formatPaise(d.sgst)}
+                </td>
+              </>
+            )}
+            <td className={cx('px-1 py-1.5 text-right', sep)}>{formatPaise(d.taxable + tax)}</td>
+          </tr>
+        </tfoot>
       </table>
-      {hasIncl && <div className="-mt-2 text-[8pt] text-ink-3">* rate includes GST</div>}
+      {hasIncl && <div className={cx('-mt-1.5 text-[10px]', MUTED)}>* rate includes GST</div>}
 
-      {/* GST working and totals sit at the bottom of the page, just above the signature */}
-      <div className="mt-auto flex justify-between gap-6 border-t border-line pt-3">
-        <div className="min-w-0 flex-1">
-          <table className="num border-collapse text-[8.5pt] [&_td]:border-b [&_td]:border-line [&_td]:px-1.5 [&_td]:py-1 [&_th]:border-y-[1.5px] [&_th]:border-ink [&_th]:px-1.5 [&_th]:py-1 [&_th]:text-left [&_th]:text-[7.5pt] [&_th]:font-bold [&_th]:uppercase">
-            <thead>
-              <tr>
-                <th>HSN</th>
-                <th className="!text-right">Taxable</th>
-                <th className="!text-right">Rate</th>
-                {inter ? (
-                  <th className="!text-right">IGST</th>
-                ) : (
-                  <>
-                    <th className="!text-right">CGST</th>
-                    <th className="!text-right">SGST</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {hsn.map((s) => (
-                <tr key={`${s.hsn}-${s.gstRateBp}`}>
-                  <td>{s.hsn}</td>
-                  <td className="text-right">{formatPaise(s.taxablePaise)}</td>
-                  <td className="text-right">{formatPercent(s.gstRateBp)}%</td>
-                  {inter ? (
-                    <td className="text-right">{formatPaise(s.igstPaise)}</td>
-                  ) : (
-                    <>
-                      <td className="text-right">{formatPaise(s.cgstPaise)}</td>
-                      <td className="text-right">{formatPaise(s.sgstPaise)}</td>
-                    </>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-3">
-            <span className="text-ink-3">{L('Amount in words')}:</span> <b>{amountInWords(d.total)}</b>
+      {/* words + totals */}
+      <div className="flex items-start justify-between gap-7">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div>
+            <div className={cx('text-[12px]', MUTED)}>{L('Amount in words')}</div>
+            <b>{amountInWords(d.total)}</b>
+          </div>
+          <div>
+            <div className={cx('text-[12px]', MUTED)}>
+              Tax in words ({inter ? `IGST ₹${formatPaise(d.igst)}` : `CGST ₹${formatPaise(d.cgst)} + SGST ₹${formatPaise(d.sgst)} = ₹${formatPaise(tax)}`})
+            </div>
+            <b>{amountInWords(tax)}</b>
           </div>
         </div>
-        <div className="num grid w-[250px] grid-cols-[1fr_auto] content-start gap-x-3 gap-y-1">
+        <div className="grid w-[230px] grid-cols-[minmax(0,1fr)_auto] content-start gap-x-3 gap-y-[5px]">
           {d.discount > 0 && (
             <>
-              <span className="text-ink-3">Discount given</span>
+              <span className={MUTED}>Discount given</span>
               <span className="text-right">{formatPaise(d.discount)}</span>
             </>
           )}
-          <span className="text-ink-3">Taxable value</span>
+          <span className={MUTED}>Taxable value</span>
           <span className="text-right">{formatPaise(d.taxable)}</span>
           {inter ? (
             <>
-              <span className="text-ink-3">IGST</span>
+              <span className={MUTED}>IGST</span>
               <span className="text-right">{formatPaise(d.igst)}</span>
             </>
           ) : (
             <>
-              <span className="text-ink-3">CGST</span>
+              <span className={MUTED}>CGST</span>
               <span className="text-right">{formatPaise(d.cgst)}</span>
-              <span className="text-ink-3">SGST</span>
+              <span className={MUTED}>SGST</span>
               <span className="text-right">{formatPaise(d.sgst)}</span>
             </>
           )}
-          <span className="text-ink-3">Round off</span>
-          <span className="text-right">{formatPaise(d.roundOff)}</span>
-          <span className="border-t-[1.5px] border-ink pt-1.5 text-[14pt] font-extrabold" style={{ fontStretch: '75%' }}>
-            {d.kind === 'invoice' ? 'TOTAL' : 'CREDIT'}
-          </span>
-          <span className="border-t-[1.5px] border-ink pt-1.5 text-right text-[14pt] font-extrabold">₹{formatPaise(d.total)}</span>
-        </div>
-      </div>
-
-      <div className="flex items-end justify-between gap-6 border-t border-line pt-3">
-        <div className="max-w-[420px] text-[8.5pt] text-ink-2">
-          {d.kind === 'invoice' && d.store.terms && (
-            <>
-              <b className="text-ink">{L('Terms')}:</b> {d.store.terms}
-            </>
-          )}
-          <div className="mt-1.5 text-ink-3">{d.footer} · Computer-generated document</div>
-        </div>
-        {/* bottom right: "For", room to sign, then the shop's name under the signature */}
-        <div className="flex w-[250px] flex-col text-[9.5pt]">
-          <span>For</span>
-          <div className="h-16" />
-          <div className="border-t border-ink pt-1 text-center">
-            <b className="uppercase tracking-[.02em]">{d.store.name}</b>
-            <div className="text-[8pt] text-ink-3">{L('Authorised signatory')}</div>
+          <span className={MUTED}>Round off</span>
+          <span className="text-right">{d.roundOff < 0 ? '−' : ''}{formatPaise(Math.abs(d.roundOff))}</span>
+          <div className="col-span-2 mt-1.5 flex items-baseline justify-between border-y-[1.5px] border-ink pb-1.5 pt-2">
+            <span className="text-[13px] font-bold tracking-[.08em]">{isInvoice ? 'TOTAL' : 'CREDIT'}</span>
+            <span className="text-[22px] font-extrabold" style={{ fontStretch: '75%' }}>
+              ₹{formatPaise(d.total)}
+            </span>
           </div>
         </div>
       </div>
+
+      {/* terms + signature */}
+      <div className="mt-auto flex items-end justify-between gap-7 border-t border-[#e4e0d8] pt-3">
+        <div className="max-w-[400px] text-[12px] leading-[1.5] text-ink-2">
+          {isInvoice && d.store.terms && (
+            <>
+              <b className="text-ink">{L('Terms')}</b> · {d.store.terms}
+            </>
+          )}
+          <div className={cx('mt-1', MUTED)}>{d.footer} · Computer-generated {isInvoice ? 'invoice' : 'document'}</div>
+        </div>
+        <div className="flex w-[240px] flex-col">
+          <span>For</span>
+          <div className="h-9" />
+          <div className="flex flex-col border-t border-ink pt-[5px] text-center">
+            <span className="text-[12px] font-bold uppercase tracking-[.03em]">{d.store.name}</span>
+            <span className={cx('text-[12px]', MUTED)}>{L('Authorised signatory')}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* brands we deal in */}
+      {d.store.showBrands !== false && (
+        <div className="flex flex-col gap-2 border-t-2 border-brick pt-2.5">
+          <span className={cx('text-center text-[12px] font-semibold tracking-[.14em]', MUTED)}>AUTHORISED DEALERS FOR</span>
+          <div className="grid grid-cols-5 items-center justify-items-center gap-x-[18px] gap-y-2">
+            {BRANDS.map((b) =>
+              'src' in b ? (
+                <img key={b.name} src={b.src} alt={b.name} style={{ height: b.h, width: 'auto', maxWidth: 120, filter: b.mono ? 'brightness(0)' : undefined }} />
+              ) : (
+                <div key={b.name} className="flex flex-col items-center leading-none">
+                  <span className="text-[16px] font-extrabold tracking-[.02em] text-ink-2">{b.word}</span>
+                  <span className={cx('mt-[3px] text-[8px] font-semibold tracking-[.2em]', MUTED)}>{b.sub}</span>
+                </div>
+              ),
+            )}
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function SubHeads({ th, sep }: { th: string; sep: string }) {
+  return (
+    <>
+      <th className={cx(th, sep, 'border-b-[1.5px] border-ink text-right')}>Rate</th>
+      <th className={cx(th, 'border-b-[1.5px] border-ink text-right')}>Amount</th>
+    </>
   );
 }

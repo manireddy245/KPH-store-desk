@@ -255,7 +255,7 @@ export async function deliverable(q: Q, invoiceId: number) {
       select l.id, l.line_no, l.product_name, l.unit_code, l.qty_milli,
              coalesce((select sum(cl.qty_milli) from credit_note_lines cl join credit_notes cn on cn.id = cl.credit_note_id where cl.invoice_line_id = l.id and cn.status = 'posted'), 0)::bigint as returned_milli,
              coalesce((select sum(dl.qty_milli) from delivery_lines dl join deliveries d on d.id = dl.delivery_id where dl.invoice_line_id = l.id and d.status <> 'cancelled'), 0)::bigint as delivered_milli
-      from sales_invoice_lines l where l.invoice_id = ${invoiceId}
+      from sales_invoice_lines l join products p on p.id = l.product_id where l.invoice_id = ${invoiceId} and not p.is_service
     ) x order by x.line_no`;
 }
 

@@ -104,7 +104,7 @@ export async function stockInsights(q: Q, ctx: Ctx, opts: { asOf?: string } = {}
     left join stock_balances sb on sb.product_id = p.id
     left join agg a on a.product_id = p.id left join last_sale ls2 on ls2.product_id = p.id left join on_order oo on oo.product_id = p.id
     left join last_supplier ls on ls.product_id = p.id left join suppliers su on su.id = ls.supplier_id
-    where p.active
+    where p.active and not p.is_service
     order by lower(p.name)`;
   const [{ first } = { first: null }] = await q<{ first: string | null }[]>`select min(invoice_date)::text as first from sales_invoices where status = 'posted'`;
   const hasYear = !!first && first <= new Date(Date.parse(today) - 365 * 86_400_000).toISOString().slice(0, 10);
@@ -305,7 +305,7 @@ export async function getAudit(q: Q, ctx: Ctx, id: number) {
            l.id as line_id, l.system_milli, l.counted_milli, l.reason, l.note, l.adjusted, u.name as counted_by
     from products p left join categories c on c.id = p.category_id left join stock_balances sb on sb.product_id = p.id
          left join stock_audit_lines l on l.product_id = p.id and l.audit_id = ${id} left join users u on u.id = l.counted_by
-    where p.active and (${a.category_id}::int is null or p.category_id = ${a.category_id})
+    where p.active and not p.is_service and (${a.category_id}::int is null or p.category_id = ${a.category_id})
     order by c.name nulls last, lower(p.name)`;
   const showCost = can(ctx, 'products.view_cost');
   const counted = items.filter((i) => i.line_id != null);

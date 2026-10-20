@@ -25,7 +25,9 @@ export interface ProductRow {
   cat_disc_value: number | null;
   active: boolean;
   qty_milli: number;
-  stock_status: 'ok' | 'low' | 'out';
+  stock_status: 'ok' | 'low' | 'out' | 'service';
+  /** A service (loading charges, transport…): no stock. */
+  is_service?: boolean;
 }
 
 export interface ProductUnit {
@@ -110,6 +112,7 @@ export interface InvoiceLine {
   returned_qty_milli: number;
   id: number;
   cost_price_paise?: number | null;
+  is_service?: boolean;
 }
 
 export interface InvoiceFull {
@@ -143,7 +146,10 @@ export interface InvoiceFull {
   user_name: string;
   device_name: string | null;
   lines: InvoiceLine[];
-  store: { name: string; address: string; phone: string; gstin: string; stateCode: string; stateName: string; terms: string; labels: 'en' | 'te-en'; place?: string; pincode?: string };
+  store: { name: string; address: string; phone: string; gstin: string; stateCode: string; stateName: string; terms: string; labels: 'en' | 'te-en'; showBrands?: boolean; place?: string; pincode?: string };
+  details?: import('../components/BillDetails').BillDetailsRow | null;
+  quotation?: { number: string; quote_date: string } | null;
+  challans?: string[];
   transport?: Transport | null;
   partner?: { partner_id: number; name: string; type_name: string; site_name: string | null } | null;
 }

@@ -159,6 +159,7 @@ export async function createPurchase(sql: Sql, ctx: Ctx, input: PurchaseInput) {
       );
       const byId = new Map(products.map((p) => [p.id, p]));
       for (const id of productIds) if (!byId.get(id)) throw new AppError(400, 'NO_PRODUCT', 'One of the products no longer exists');
+      for (const id of productIds) if (byId.get(id)!.is_service) throw new AppError(400, 'SERVICE', `"${byId.get(id)!.name}" is a service, not stock — it can't be on a purchase`);
       // Bought in another unit (e.g. tonnes) → stock in the base unit (e.g. rods), or the count actually received.
       for (const [i, c] of computed.entries()) {
         const p = byId.get(c.l.productId!)!;

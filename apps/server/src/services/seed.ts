@@ -156,6 +156,13 @@ export async function seedSample(sql: Sql) {
     ))!;
     productIds.push(id);
   }
+  // A service: billed like an item (with its SAC code and GST) but never counted as stock.
+  await createProduct(
+    sql,
+    admin,
+    { sku: 'SMP-SVC-LOAD', name: 'Loading and unloading charges', unitCode: 'nos', hsn: '996749', gstRateBp: 1800, salePricePaise: 30000, isService: true },
+    { isSample: true },
+  );
   const customerIds: number[] = [];
   for (const c of CUSTOMERS) customerIds.push((await createCustomer(sql, admin, c, { isSample: true })).id);
   for (const s of SUPPLIERS) await createSupplier(sql, admin, s, { isSample: true });

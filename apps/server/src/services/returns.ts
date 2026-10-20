@@ -176,14 +176,18 @@ export async function createCreditNote(sql: Sql, ctx: Ctx, invoiceId: number, in
     )}`;
 
     // Goods come back into stock; damaged goods are then written off with a reason, so the trail is complete.
+    const serviceIds = new Set(
+      (await tx<{ id: number }[]>`select id from products where is_service and id in ${tx(rows.map((x) => x.l.product_id))}`).map((p) => p.id),
+    );
     const moves = [];
     for (const x of rows) {
+      if (serviceIds.has(x.l.product_id)) continue;
       moves.push({ product_id: x.l.product_id, qty_milli: x.base, kind: 'sale_return', ref_type: 'credit_note', ref_id: id, unit_cost_paise: x.l.cost_price_paise, reason, user_id: ctx.userId, device_id: ctx.deviceId });
       if (!x.r.restock)
         moves.push({ product_id: x.l.product_id, qty_milli: -x.base, kind: 'adjustment', ref_type: 'credit_note', ref_id: id, unit_cost_paise: x.l.cost_price_paise, reason: `Returned damaged, not resaleable (${number})`, user_id: ctx.userId, device_id: ctx.deviceId });
     }
-    await lockProducts(tx, rows.map((x) => x.l.product_id));
-    await tx`insert into stock_movements ${tx(moves)}`;
+    await lockProducts(tx, rows.map((x) => x.l.product_id).filter((pid) => !serviceIds.has(pid)));
+    if (moves.length) await tx`insert into stock_movements ${tx(moves)}`;
     await reverseRewardsOnReturn(tx, ctx, invoiceId, id, number, rows.map((x) => ({ invoiceLineId: x.l.id, baseQtyMilli: x.base, lineBaseQtyMilli: x.l.base_qty_milli })));
 
     await audit(tx, ctx, 'credit_note.created', {

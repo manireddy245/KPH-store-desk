@@ -67,6 +67,8 @@ export interface StoreSettings {
   purchasePriceMode: 'excl' | 'incl';
   /** Invoice labels: English, or Telugu + English. */
   invoiceLabels: 'en' | 'te-en';
+  /** Show the "Authorised dealers for" brand logos at the foot of every bill. */
+  invoiceShowBrands: boolean;
   creditNotePrefix: string;
   debitNotePrefix: string;
 }
@@ -119,6 +121,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   salesPriceMode: 'excl',
   purchasePriceMode: 'excl',
   invoiceLabels: 'te-en',
+  invoiceShowBrands: true,
   creditNotePrefix: 'CN',
   debitNotePrefix: 'DN',
 };

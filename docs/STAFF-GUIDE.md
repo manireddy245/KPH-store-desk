@@ -33,6 +33,8 @@ Short and simple: how to bill, take payments and handle stock. Telugu is below t
   - **Yes**: goods going by vehicle (our delivery, lorry, transporter). The e-way bill form opens for that bill.
   - **No**: pick why (for example, customer collected from the shop).
   - **Ask later**: the bill shows "E-way bill needed…" in Sales.
+- **Loading / unloading or transport charges:** add them like an item (search "loading"). They are a service: GST is added, but no stock is used.
+- **Goods going to a site?** Open **Ship to, PAN & delivery details** under the payment box. Fill in the site, contact, customer PAN if they want it, and any delivery details. Blank boxes are not printed. You can add or correct these later: Sales → open the bill → **Ship-to & details…**
 
 ### Returns and cancelling
 - **Return:** Sales → open the bill → **Return items…** → choose items and quantities → save. Stock comes back and a credit note is made.
@@ -86,6 +88,8 @@ Short and simple: how to bill, take payments and handle stock. Telugu is below t
   - **Yes**: సరుకు వాహనంలో వెళ్తుంటే (మా డెలివరీ, లారీ, ట్రాన్స్‌పోర్ట్). ఆ బిల్లుకు ఇ-వే బిల్లు ఫారం తెరుచుకుంటుంది.
   - **No**: ఎందుకో ఎంచుకోండి (ఉదా: కస్టమర్ షాప్ నుండే తీసుకెళ్లారు).
   - **Ask later**: Sales లో ఆ బిల్లు మీద "E-way bill needed…" అని ఉంటుంది.
+- **లోడింగ్ / అన్‌లోడింగ్ లేదా రవాణా ఛార్జీలు:** సరుకు లాగే జోడించండి ("loading" అని వెతకండి). ఇవి సేవలు: GST పడుతుంది, కానీ స్టాక్ తగ్గదు.
+- **సరుకు సైట్‌కు వెళ్తుంటే:** చెల్లింపు కింద **Ship to, PAN & delivery details** తెరవండి. సైట్, సంప్రదించే వ్యక్తి, కస్టమర్ PAN (కావాలంటే), డెలివరీ వివరాలు రాయండి. ఖాళీగా ఉన్నవి ప్రింట్ కావు. తరువాత కూడా మార్చవచ్చు: Sales → బిల్లు → **Ship-to & details…**
 
 ### రిటర్న్ మరియు రద్దు
 - **రిటర్న్:** Sales → బిల్లు తెరవండి → **Return items…** → సరుకులు, పరిమాణం ఎంచుకుని సేవ్. సరుకు స్టాక్‌లోకి తిరిగి వస్తుంది.

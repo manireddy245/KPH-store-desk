@@ -9,7 +9,7 @@ import type { Category, ProductRow } from '../lib/types';
 import { Page } from '../components/Layout';
 import { Badge, Button, Checkbox, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, cx, useToast } from '../components/ui';
 
-const statusTone = { ok: 'text-good', low: 'text-warn', out: 'text-bad' } as const;
+const statusTone = { ok: 'text-good', low: 'text-warn', out: 'text-bad', service: 'text-ink-3' } as const;
 
 export function Inventory() {
   const { can } = useSession();
@@ -143,7 +143,9 @@ export function Inventory() {
               </td>
               <td className="text-ink-2">{p.category_name ?? '—'}</td>
               <td className="num text-right">
-                {can('stock.adjust') ? (
+                {p.is_service ? (
+                  <span className="text-[13px] font-semibold text-ink-3">Service</span>
+                ) : can('stock.adjust') ? (
                   <button type="button" title="Adjust stock (reason required)" onClick={() => setAdjusting(p)} className={cx('-mx-1.5 rounded-[4px] border border-dashed border-transparent px-1.5 py-0.5 font-bold hover:border-cement hover:bg-paper', statusTone[p.stock_status])}>
                     {formatQty(p.qty_milli)} {p.unit_code}
                   </button>
@@ -152,7 +154,7 @@ export function Inventory() {
                     {formatQty(p.qty_milli)} {p.unit_code}
                   </span>
                 )}
-                <div className={cx('text-[11px]', statusTone[p.stock_status])}>{p.stock_status === 'ok' ? 'OK' : p.stock_status === 'low' ? `Low (${formatQty(p.reorder_level_milli ?? 0) || 'default'})` : 'Out of stock'}</div>
+                {!p.is_service && <div className={cx('text-[11px]', statusTone[p.stock_status])}>{p.stock_status === 'ok' ? 'OK' : p.stock_status === 'low' ? `Low (${formatQty(p.reorder_level_milli ?? 0) || 'default'})` : 'Out of stock'}</div>}
               </td>
               <td className="num text-right">
                 <InlinePrice p={p} editable={can('products.edit_price')} />
@@ -288,8 +290,9 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
             active: product.active ? '1' : '0',
             inclMode: product.price_includes_tax ? '1' : '0',
             contents: product.contents_milli != null ? formatQty(product.contents_milli) : '',
+            service: product.is_service ? '1' : '0',
           }
-        : { sku: '', name: '', categoryId: '', brand: '', unitCode: 'pcs', hsn: '', gst: '18', price: '', cost: '', mrp: '', reorder: '', discType: '', disc: '', opening: '', active: '1', inclMode: '0', contents: '' },
+        : { sku: '', name: '', categoryId: '', brand: '', unitCode: 'pcs', hsn: '', gst: '18', price: '', cost: '', mrp: '', reorder: '', discType: '', disc: '', opening: '', active: '1', inclMode: '0', contents: '', service: '0' },
     );
     setUnits(
       (product?.units ?? []).map((u) => ({
@@ -335,6 +338,7 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
     if (canCost) body.costPricePaise = money(f.cost);
     if (canPrice) body.priceIncludesTax = inclMode;
     body.contentsMilli = f.contents?.trim() ? parseQty(f.contents) : null;
+    body.isService = f.service === '1';
     body.contentsUnit = f.contents?.trim() ? 'ltr' : null;
     const unitBody = [];
     for (const u of units) {
@@ -530,7 +534,12 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
         <Field label="Pack contents in litres (optional)" hint="For paint: 20 for a 20L bucket — used in litre reports">
           <Input value={f.contents ?? ''} onChange={set('contents')} inputMode="decimal" />
         </Field>
-        {!product && (
+        <Checkbox
+          label="This is a service, not stock (loading / unloading, transport, cutting charges…). Use its SAC code (e.g. 996749) in the HSN box."
+          checked={f.service === '1'}
+          onChange={(v) => setF((x) => ({ ...x, service: v ? '1' : '0' }))}
+        />
+        {!product && f.service !== '1' && (
           <Field label="Opening stock" hint="Saved as an “opening” stock entry">
             <Input value={f.opening ?? ''} onChange={set('opening')} inputMode="decimal" />
           </Field>

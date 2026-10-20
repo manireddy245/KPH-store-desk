@@ -29,6 +29,7 @@ import { useSession } from '../lib/session';
 import type { AssistantBillCard, CustomerRow, ProductRow } from '../lib/types';
 import { PartnerPicker, type PartnerPick } from '../components/PartnerBits';
 import { useT } from '../lib/i18n';
+import { BillDetailsSection, cleanDetails, type BillDetails } from '../components/BillDetails';
 import { Button, Field, Input, Kbd, Modal, Notice, cx, useDebounced, useToast } from '../components/ui';
 
 type Mode = 'cash' | 'upi' | 'card' | 'credit';
@@ -61,6 +62,8 @@ interface Draft {
   siteId?: number | null;
   mode: Mode;
   notes: string;
+  /** Ship-to, customer PAN, delivery boxes (optional). */
+  details?: BillDetails;
   savedAt?: string;
 }
 
@@ -194,7 +197,7 @@ export function Billing() {
     const baseMilli = baseOf(l);
     const usedElsewhere = draft.lines.filter((o) => o.productId === l.productId && o.key !== l.key).reduce((s, o) => s + baseOf(o), 0);
     const available = (p?.qty_milli ?? 0) - usedElsewhere;
-    const short = valid && baseMilli > available;
+    const short = valid && !p?.is_service && baseMilli > available;
     const saleUnits = p ? [p.unit_code, ...p.units.filter((u) => u.for_sale).map((u) => u.unit_code)] : [];
     return { l, p, qtyMilli, discBp, ratePaise, listRate, mode, unit, saleUnits, baseMilli, maxBp, valid, result, over, approved, blocked, short, available };
   });
@@ -311,6 +314,7 @@ export function Billing() {
         placeOfSupply: pos,
         paymentMode: draft.mode,
         notes: draft.notes || undefined,
+        details: cleanDetails(draft.details),
         creditOverrideToken,
         partnerId: draft.partner?.id ?? null,
         siteId: draft.partner ? (draft.siteId ?? null) : null,
@@ -468,10 +472,14 @@ export function Billing() {
                       {p.sku} · {p.category_name ?? 'No category'} {p.brand_name ? `· ${p.brand_name}` : ''}
                     </div>
                   </div>
-                  <div className={cx('num whitespace-nowrap text-[13px] font-bold', p.stock_status === 'ok' ? 'text-good' : p.stock_status === 'low' ? 'text-warn' : 'text-bad')}>
-                    {formatQty(p.qty_milli)} {p.unit_code}
-                    {p.stock_status !== 'ok' && ` · ${p.stock_status}`}
-                  </div>
+                  {p.is_service ? (
+                    <div className="whitespace-nowrap text-[13px] font-bold text-ink-3">Service</div>
+                  ) : (
+                    <div className={cx('num whitespace-nowrap text-[13px] font-bold', p.stock_status === 'ok' ? 'text-good' : p.stock_status === 'low' ? 'text-warn' : 'text-bad')}>
+                      {formatQty(p.qty_milli)} {p.unit_code}
+                      {p.stock_status !== 'ok' && ` · ${p.stock_status}`}
+                    </div>
+                  )}
                   <div className="num w-[110px] text-right font-semibold">₹{formatPaise(p.sale_price_paise)}</div>
                   <span className="w-12 text-right">{i === cursor && <Kbd>Enter</Kbd>}</span>
                 </div>
@@ -514,10 +522,14 @@ export function Billing() {
                       <div className="font-bold">{r.p?.name ?? 'Product no longer available'}</div>
                       {r.p && (
                         <div className="text-xs text-ink-3">
-                          {r.p.sku} · HSN {r.p.hsn ?? '—'} ·{' '}
-                          <span className={r.short ? 'font-bold text-bad' : r.available <= 0 ? 'text-bad' : 'text-good'}>
-                            {r.short ? `only ${formatQty(Math.max(0, r.available))} ${r.p.unit_code} in stock` : `${formatQty(r.available)} ${r.p.unit_code} in stock`}
-                          </span>
+                          {r.p.sku} · {r.p.is_service ? 'SAC' : 'HSN'} {r.p.hsn ?? '—'} ·{' '}
+                          {r.p.is_service ? (
+                            <span>service, no stock</span>
+                          ) : (
+                            <span className={r.short ? 'font-bold text-bad' : r.available <= 0 ? 'text-bad' : 'text-good'}>
+                              {r.short ? `only ${formatQty(Math.max(0, r.available))} ${r.p.unit_code} in stock` : `${formatQty(r.available)} ${r.p.unit_code} in stock`}
+                            </span>
+                          )}
                         </div>
                       )}
                       {r.p && ageOf.get(r.p.id)?.oldest && (
@@ -855,6 +867,7 @@ export function Billing() {
         <Field label={t('Note on bill (optional)')}>
           <Input value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} placeholder="e.g. deliver to site tomorrow" />
         </Field>
+        <BillDetailsSection key={draft.clientRef} value={draft.details ?? {}} onChange={(v) => setDraft((d) => ({ ...d, details: v }))} />
         {draft.savedAt && draft.lines.length > 0 && (
           <div className="flex items-center gap-1.5 text-xs text-ink-3">
             <svg aria-hidden width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1d7a3e" strokeWidth="2.5"><path d="M20 6 9 17l-5-5" /></svg>

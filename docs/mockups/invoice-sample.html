@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice Sample</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
+<!-- Sample for the owner's approval only. Figures, buyer and numbers are made up. Not part of the app. -->
+<style>
+  :root { --brick:#c2491a; --ink:#16181b; --ink2:#3e3c38; --ink3:#6b675f; --line:#d9d5cc; --paper:#f7f5f1; --teal:#1e3f48; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #fff; color: var(--ink); font-family: Archivo, Arial, sans-serif; font-size: 9.5pt; }
+  .sheet { width: 794px; min-height: 1123px; padding: 30px 34px 22px; display: flex; flex-direction: column; gap: 9px; background: #fff; position: relative; }
+  .num { font-variant-numeric: tabular-nums; }
+  .cond { font-stretch: 75%; }
+  .lbl { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: var(--ink3); }
+  .sample { position: absolute; top: 8px; left: 34px; font-size: 7pt; color: var(--ink3); letter-spacing: .08em; }
+
+  /* header */
+  .head { display: flex; justify-content: space-between; gap: 16px; border-bottom: 3px solid var(--brick); padding-bottom: 10px; }
+  .brand { display: flex; flex-direction: column; gap: 6px; }
+  .brandrow { display: flex; align-items: center; gap: 10px; }
+  .name1 { font-size: 25pt; font-weight: 800; letter-spacing: .02em; line-height: 1; font-stretch: 75%; }
+  .name2 { font-size: 7.5pt; font-weight: 600; letter-spacing: .3em; color: var(--ink2); }
+  .addr { font-size: 8.5pt; line-height: 1.45; color: var(--ink2); }
+  .addr b { color: var(--ink); }
+  .right { display: flex; gap: 10px; align-items: flex-start; text-align: right; }
+  .title { font-size: 19pt; font-weight: 800; letter-spacing: .04em; font-stretch: 75%; line-height: 1; }
+  .copy { font-size: 8pt; color: var(--ink3); margin-top: 3px; }
+  .einv { margin-top: 6px; font-size: 7pt; color: var(--ink2); line-height: 1.4; text-align: right; }
+  .einv b { color: var(--ink); }
+  .irn { font-size: 6.5pt; word-break: break-all; max-width: 230px; display: inline-block; }
+
+  /* parties + details */
+  .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--line); }
+  .party { padding: 6px 8px; }
+  .party + .party { border-left: 1px solid var(--line); }
+  .pname { font-size: 10.5pt; font-weight: 700; margin-top: 2px; }
+  .details { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-top: 0; }
+  .cell { padding: 4px 8px; border-top: 1px solid var(--line); min-height: 34px; }
+  .cell:not(:nth-child(4n+1)) { border-left: 1px solid var(--line); }
+  .cell .v { font-weight: 700; font-size: 9pt; margin-top: 1px; }
+  .cell .v.light { font-weight: 400; color: var(--ink3); }
+
+  /* items */
+  table { width: 100%; border-collapse: collapse; }
+  .items th { border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); padding: 5px 6px; text-align: left; font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .items td { padding: 5px 6px; vertical-align: top; }
+  .items tbody tr.line td { border-bottom: 1px solid var(--line); }
+  .r, .items th.r, .hsn th.r { text-align: right; }
+  .items .sub td { border-top: 1px solid var(--ink3); font-weight: 600; }
+  .items .tax td { padding-top: 3px; padding-bottom: 3px; color: var(--ink2); }
+  .items .tax td.lab { text-align: right; font-style: italic; }
+  .items .total td { border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); font-weight: 800; }
+  .grand { font-size: 14pt; font-stretch: 75%; }
+  .words { display: flex; justify-content: space-between; gap: 12px; }
+
+  /* hsn table */
+  .hsn th, .hsn td { border: 1px solid var(--line); padding: 3px 6px; font-size: 8pt; }
+  .hsn th { background: var(--paper); font-size: 7pt; text-transform: uppercase; letter-spacing: .04em; }
+  .hsn tfoot td { font-weight: 700; background: var(--paper); }
+
+  /* footer */
+  .foot { display: flex; justify-content: space-between; gap: 18px; border-top: 1px solid var(--line); padding-top: 8px; margin-top: auto; }
+  .decl { max-width: 430px; font-size: 8pt; color: var(--ink2); line-height: 1.45; }
+  .decl b { color: var(--ink); }
+  .sign { width: 250px; display: flex; flex-direction: column; font-size: 9.5pt; }
+  .sign .gap { height: 58px; }
+  .sign .line { border-top: 1px solid var(--ink); padding-top: 4px; text-align: center; }
+  .sign .shop { font-weight: 700; text-transform: uppercase; letter-spacing: .02em; }
+  .sign .as { font-size: 8pt; color: var(--ink3); }
+  .cgi { text-align: center; font-size: 7.5pt; color: var(--ink3); }
+
+  /* brand strip */
+  .brands { border-top: 2px solid var(--brick); padding-top: 7px; display: flex; flex-direction: column; gap: 6px; }
+  .brands .lbl { text-align: center; }
+  .logos { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .logo { height: 34px; border: 1px dashed #b9b3a7; border-radius: 4px; display: grid; place-items: center; font-weight: 800; font-size: 9pt; color: #8a857c; letter-spacing: .02em; text-align: center; line-height: 1.05; }
+  .logo small { display: block; font-weight: 500; font-size: 6pt; letter-spacing: .06em; }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="sample">SAMPLE FOR APPROVAL — buyer, items and figures are made up</div>
+
+  <!-- header: our look -->
+  <div class="head">
+    <div class="brand">
+      <div class="brandrow">
+        <svg width="62" height="51" viewBox="0 0 120 100" aria-label="Kanakapatnam Paints and Hardwares">
+          <polygon points="10,44 60,8 110,44" fill="#C2491A"/><rect x="76" y="40" width="8" height="16" rx="4" fill="#C2491A"/>
+          <rect x="18" y="48" width="38" height="14" fill="#16181B"/><rect x="60" y="48" width="12" height="14" fill="#16181B"/><rect x="88" y="48" width="14" height="14" fill="#16181B"/>
+          <rect x="18" y="66" width="18" height="14" fill="#16181B"/><rect x="40" y="66" width="40" height="14" fill="#16181B"/><rect x="84" y="66" width="18" height="14" fill="#16181B"/>
+          <rect x="10" y="84" width="100" height="12" fill="#8A857C"/>
+        </svg>
+        <div><div class="name1">KANAKAPATNAM</div><div class="name2">PAINTS &amp; HARDWARES</div></div>
+      </div>
+      <div class="addr">
+        0-15-35/G23-F23, Trunk Road, Kavali, SPSR Nellore Dist., Andhra Pradesh 524201<br>
+        Phone 94409 30271 · GSTIN <b>37DZMPM4249D1Z3</b> · PAN <b>DZMPM4249D</b><br>
+        State: Andhra Pradesh (37)
+      </div>
+    </div>
+    <div class="right">
+      <div>
+        <div class="title">TAX INVOICE</div>
+        <div class="copy">Original for recipient</div>
+        <div class="einv">
+          e-Invoice (only when e-invoicing applies)<br>
+          IRN <span class="irn num">3f9a1c07b2e84d1690a5c3e27d41b8f0e6c2a9d4-51b7e08c3f62a1d9</span><br>
+          Ack No. <b class="num">1126 3195 4216 577</b> · Ack Date <b>14-Aug-26</b>
+        </div>
+      </div>
+      <svg width="92" height="92" viewBox="0 0 29 29" shape-rendering="crispEdges" aria-label="e-invoice QR code (placeholder)" id="qr"></svg>
+    </div>
+  </div>
+
+  <!-- buyer / consignee -->
+  <div class="parties">
+    <div class="party">
+      <div class="lbl">Buyer (Bill to)</div>
+      <div class="pname">Sri Venkateswara Constructions</div>
+      <div>Door 12-4-88, Pathuru Road, Kavali</div>
+      <div>Phone 98480 12345 · GSTIN <b>37ABCFS1234K1Z9</b></div>
+      <div>State: Andhra Pradesh (37)</div>
+    </div>
+    <div class="party">
+      <div class="lbl">Consignee (Ship to)</div>
+      <div class="pname">Sri Venkateswara Constructions — site</div>
+      <div>Apartment site, Musunur Road, Kavali</div>
+      <div>Contact: K. Ramu (mason) 99630 34567</div>
+      <div>State: Andhra Pradesh (37)</div>
+    </div>
+  </div>
+
+  <!-- invoice details (Tally boxes) -->
+  <div class="details">
+    <div class="cell"><div class="lbl">Invoice No.</div><div class="v num">KPH/26-27/000835</div></div>
+    <div class="cell"><div class="lbl">Dated</div><div class="v">14-Aug-2026, 11:20 am</div></div>
+    <div class="cell"><div class="lbl">e-Way Bill No.</div><div class="v num">1225 1814 2105</div></div>
+    <div class="cell"><div class="lbl">Mode / Terms of Payment</div><div class="v">Credit</div></div>
+
+    <div class="cell"><div class="lbl">Delivery Note</div><div class="v num">DC/26-27/000412</div></div>
+    <div class="cell"><div class="lbl">Reference No. &amp; Date</div><div class="v num">QTN/26-27/000120 · 12-Aug-26</div></div>
+    <div class="cell"><div class="lbl">Buyer's Order No. &amp; Date</div><div class="v num">PO-58 · 12-Aug-26</div></div>
+    <div class="cell"><div class="lbl">Other References</div><div class="v light">—</div></div>
+
+    <div class="cell"><div class="lbl">Dispatched through</div><div class="v">Own vehicle (tractor)</div></div>
+    <div class="cell"><div class="lbl">Destination</div><div class="v">Musunur Road, Kavali</div></div>
+    <div class="cell"><div class="lbl">Motor Vehicle No.</div><div class="v">AP39TX1234</div></div>
+    <div class="cell"><div class="lbl">Terms of Delivery</div><div class="v">Delivered at site</div></div>
+  </div>
+
+  <!-- items -->
+  <table class="items num">
+    <thead>
+      <tr>
+        <th style="width:26px">Sl</th>
+        <th>Description of goods</th>
+        <th>HSN/SAC</th>
+        <th class="r">Quantity</th>
+        <th class="r">Rate</th>
+        <th>per</th>
+        <th class="r">Disc</th>
+        <th class="r">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="line"><td>1</td><td><b>ARS TMT Bar 12mm</b></td><td>72142090</td><td class="r">1.525 ton</td><td class="r">62,500.00</td><td>ton</td><td class="r">—</td><td class="r">95,312.50</td></tr>
+      <tr class="line"><td>2</td><td><b>ARS TMT Bar 8mm</b></td><td>72142090</td><td class="r">0.999 ton</td><td class="r">64,000.00</td><td>ton</td><td class="r">—</td><td class="r">63,936.00</td></tr>
+      <tr class="line"><td>3</td><td><b>UltraTech PPC Cement 50kg</b></td><td>2523</td><td class="r">100 bag</td><td class="r">300.00</td><td>bag</td><td class="r">—</td><td class="r">30,000.00</td></tr>
+      <tr class="sub"><td></td><td colspan="6" class="r">Goods total</td><td class="r">1,89,248.50</td></tr>
+      <tr class="tax"><td></td><td class="lab" colspan="1">Loading and Unloading (Sales)</td><td>996749</td><td colspan="4"></td><td class="r">1,200.00</td></tr>
+      <tr class="tax"><td></td><td class="lab">CGST</td><td colspan="5"></td><td class="r">17,140.37</td></tr>
+      <tr class="tax"><td></td><td class="lab">SGST</td><td colspan="5"></td><td class="r">17,140.37</td></tr>
+      <tr class="tax"><td></td><td class="lab">Round off (less)</td><td colspan="5"></td><td class="r">(−) 0.24</td></tr>
+      <tr class="total"><td></td><td class="cond" style="font-size:12pt">TOTAL</td><td></td><td class="r" style="font-weight:600">2.524 ton · 100 bag</td><td colspan="3"></td><td class="r grand">₹2,24,729.00</td></tr>
+    </tbody>
+  </table>
+
+  <div class="words">
+    <div><span class="lbl">Amount chargeable (in words)</span><br><b>INR Two Lakh Twenty Four Thousand Seven Hundred Twenty Nine Only</b></div>
+    <div style="align-self:flex-end;font-size:8pt;color:var(--ink3)">E. &amp; O.E.</div>
+  </div>
+
+  <!-- HSN / SAC tax working -->
+  <table class="hsn num">
+    <thead>
+      <tr><th rowspan="2" style="text-align:left">HSN/SAC</th><th rowspan="2" class="r">Taxable value</th><th colspan="2">CGST</th><th colspan="2">SGST/UTGST</th><th rowspan="2" class="r">Total tax amount</th></tr>
+      <tr><th class="r">Rate</th><th class="r">Amount</th><th class="r">Rate</th><th class="r">Amount</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>72142090</td><td class="r">1,59,248.50</td><td class="r">9%</td><td class="r">14,332.37</td><td class="r">9%</td><td class="r">14,332.37</td><td class="r">28,664.74</td></tr>
+      <tr><td>2523</td><td class="r">30,000.00</td><td class="r">9%</td><td class="r">2,700.00</td><td class="r">9%</td><td class="r">2,700.00</td><td class="r">5,400.00</td></tr>
+      <tr><td>996749</td><td class="r">1,200.00</td><td class="r">9%</td><td class="r">108.00</td><td class="r">9%</td><td class="r">108.00</td><td class="r">216.00</td></tr>
+    </tbody>
+    <tfoot>
+      <tr><td>Total</td><td class="r">1,90,448.50</td><td></td><td class="r">17,140.37</td><td></td><td class="r">17,140.37</td><td class="r">34,280.74</td></tr>
+    </tfoot>
+  </table>
+  <div><span class="lbl">Tax amount (in words)</span> &nbsp;<b>INR Thirty Four Thousand Two Hundred Eighty and Seventy Four paise Only</b></div>
+
+  <!-- declaration + signature -->
+  <div class="foot">
+    <div class="decl">
+      <b>Declaration:</b> We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.<br>
+      <b>Terms:</b> Goods once sold will not be taken back without the bill. Subject to Kavali jurisdiction.<br>
+      <span style="color:var(--ink3)">Billed by Ravi · Counter 1</span>
+    </div>
+    <div class="sign">
+      <span>For</span>
+      <div class="gap"></div>
+      <div class="line"><div class="shop">Kanakapatnam Paints and Hardwares</div><div class="as">Authorised signatory</div></div>
+    </div>
+  </div>
+  <div class="cgi">This is a computer generated invoice</div>
+
+  <!-- brands we deal in -->
+  <div class="brands">
+    <div class="lbl">Authorised dealers for</div>
+    <div class="logos">
+      <div class="logo">UltraTech<small>CEMENT</small></div>
+      <div class="logo">ARS<small>STEEL</small></div>
+      <div class="logo">JSW<small>STEEL</small></div>
+      <div class="logo">Birla Opus<small>PAINTS</small></div>
+      <div class="logo">Birla White<small>PUTTY</small></div>
+      <div class="logo">Astral<small>PIPES</small></div>
+      <div class="logo">Sudhakar<small>PIPES</small></div>
+    </div>
+  </div>
+</div>
+<script>
+  // placeholder QR pattern (not a real code): finder squares + fixed pseudo-random dots
+  (function () {
+    const svg = document.getElementById('qr'); let s = 7, out = '<rect width="29" height="29" fill="#fff"/>';
+    const rnd = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
+    const finder = (x, y) => `<rect x="${x}" y="${y}" width="7" height="7" fill="#16181b"/><rect x="${x+1}" y="${y+1}" width="5" height="5" fill="#fff"/><rect x="${x+2}" y="${y+2}" width="3" height="3" fill="#16181b"/>`;
+    for (let y = 0; y < 29; y++) for (let x = 0; x < 29; x++) {
+      const inF = (x < 8 && y < 8) || (x > 20 && y < 8) || (x < 8 && y > 20);
+      if (!inF && rnd() > 0.52) out += `<rect x="${x}" y="${y}" width="1" height="1" fill="#16181b"/>`;
+    }
+    svg.innerHTML = out + finder(0, 0) + finder(22, 0) + finder(0, 22);
+  })();
+</script>
+</body>
+</html>

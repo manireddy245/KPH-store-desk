@@ -245,12 +245,13 @@ export async function gstr1(q: Q, ctx: Ctx, r: Range): Promise<Gstr1> {
   for (const h of hsnRows) {
     const code = (h.hsn ?? '').replace(/\s/g, '');
     if (!code) missingHsn++;
-    const uqc = uqcFor(h.unit_code);
+    const service = code.startsWith('99');
+    const uqc = service ? 'NA' : uqcFor(h.unit_code);
     const key = `${code}|${uqc}|${h.rate_bp}`;
     const m = h.b2b ? hsn.b2b : hsn.b2c;
     const row = m.get(key) ?? { hsn: code, description: h.name, uqc, qty: 0, value: 0, rate: rate(h.rate_bp), taxable: 0, igst: 0, cgst: 0, sgst: 0 };
     const s = h.sign;
-    row.qty += s * h.qty;
+    if (!service) row.qty += s * h.qty;
     row.taxable += s * h.taxable;
     row.igst += s * h.igst;
     row.cgst += s * h.cgst;

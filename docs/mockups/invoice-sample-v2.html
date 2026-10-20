@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice Sample v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
+<!-- Sample for the owner's approval only: the app's current bill + the details chosen from the Tally bill. Buyer, items and figures are made up. Not part of the app. -->
+<style>
+  :root { --brick:#c2491a; --ink:#16181b; --ink2:#3e3c38; --ink3:#6b675f; --line:#d9d5cc; --paper:#f7f5f1; --teal:#1e3f48; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #fff; color: var(--ink); font-family: Archivo, Arial, sans-serif; font-size: 10pt; }
+  .sheet { width: 794px; min-height: 1123px; padding: 34px 40px 22px; display: flex; flex-direction: column; gap: 11px; background: #fff; position: relative; }
+  .num { font-variant-numeric: tabular-nums; }
+  .lbl { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .14em; color: var(--ink3); }
+  .muted { color: var(--ink3); }
+  .sample { position: absolute; top: 10px; left: 40px; font-size: 7pt; color: var(--ink3); letter-spacing: .08em; }
+  .opt { color: var(--brick); font-size: 6.5pt; font-weight: 700; letter-spacing: .06em; vertical-align: 1px; }
+
+  /* header (as in the app today) */
+  .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; border-bottom: 3px solid var(--brick); padding-bottom: 12px; }
+  .brandrow { display: flex; align-items: center; gap: 12px; }
+  .name1 { font-size: 26pt; font-weight: 800; letter-spacing: .02em; line-height: 1; font-stretch: 75%; }
+  .name2 { font-size: 7.5pt; font-weight: 600; letter-spacing: .3em; color: var(--ink2); margin-top: 2px; }
+  .addr { font-size: 9pt; line-height: 1.45; color: var(--ink2); margin-top: 7px; }
+  .addr b { color: var(--ink); }
+  .title { font-size: 20pt; font-weight: 800; letter-spacing: .04em; font-stretch: 75%; text-align: right; line-height: 1; }
+  .copy { font-size: 8.5pt; color: var(--ink3); text-align: right; margin-top: 3px; }
+  .b2b { display: inline-block; margin-top: 5px; background: var(--ink); color: #fff; font-size: 8pt; font-weight: 700; padding: 0 6px; border-radius: 3px; }
+
+  /* bill to / ship to / invoice details */
+  .top3 { display: grid; grid-template-columns: 1fr 0.85fr 1.35fr; gap: 16px; }
+  .pname { font-size: 11pt; font-weight: 700; margin-top: 1px; }
+  .meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; align-content: start; }
+  .meta span:nth-child(odd) { color: var(--ink3); }
+
+  /* optional delivery boxes */
+  .boxes { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 4px; }
+  .box { padding: 5px 9px; }
+  .box:nth-child(n+4) { border-top: 1px solid var(--line); }
+  .box:not(:nth-child(3n+1)) { border-left: 1px solid var(--line); }
+  .box .v { font-weight: 700; font-size: 9.5pt; margin-top: 1px; }
+
+  /* items (as in the app today, + per column, charges row, total quantity) */
+  table { width: 100%; border-collapse: collapse; }
+  .items th { border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); padding: 6px 6px; text-align: left; font-size: 8pt; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; vertical-align: bottom; }
+  .items td { border-bottom: 1px solid var(--line); padding: 6px 6px; vertical-align: top; font-size: 9.5pt; }
+  .r, .items th.r, .hsn th.r { text-align: right; }
+  .items tr.charge td { color: var(--ink2); font-style: italic; }
+  .items tr.charge td.n { font-style: normal; }
+  .items tfoot td { border-bottom: 1.5px solid var(--ink); border-top: 1px solid var(--ink3); font-weight: 700; padding: 6px; }
+
+  /* totals + tax table */
+  .bottom { display: flex; justify-content: space-between; gap: 22px; }
+  .hsn th, .hsn td { border: 1px solid var(--line); padding: 3px 6px; font-size: 8.5pt; }
+  .hsn th { background: var(--paper); font-size: 7.5pt; text-transform: uppercase; letter-spacing: .03em; }
+  .hsn tfoot td { font-weight: 700; background: var(--paper); }
+  .words { margin-top: 8px; line-height: 1.5; }
+  .tot { width: 250px; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-content: start; }
+  .tot span:nth-child(odd) { color: var(--ink3); }
+  .tot span.big { border-top: 1.5px solid var(--ink); padding-top: 6px; font-size: 14pt; font-weight: 800; font-stretch: 75%; color: var(--ink); }
+
+  /* footer (as in the app today) */
+  .foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 22px; border-top: 1px solid var(--line); padding-top: 10px; margin-top: auto; }
+  .terms { max-width: 420px; font-size: 8.5pt; color: var(--ink2); line-height: 1.5; }
+  .terms b { color: var(--ink); }
+  .sign { width: 250px; display: flex; flex-direction: column; font-size: 9.5pt; }
+  .sign .gap { height: 60px; }
+  .sign .line { border-top: 1px solid var(--ink); padding-top: 4px; text-align: center; }
+  .sign .shop { font-weight: 700; text-transform: uppercase; letter-spacing: .02em; }
+  .sign .as { font-size: 8pt; color: var(--ink3); }
+
+  /* brands we deal in */
+  .brands { border-top: 2px solid var(--brick); padding-top: 8px; display: flex; flex-direction: column; gap: 7px; }
+  .brands .lbl { text-align: center; }
+  .logos { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px 14px; align-items: center; }
+  .logo { height: 40px; display: flex; align-items: center; justify-content: center; }
+  .logo img { height: 30px; width: auto; max-width: 132px; }
+  .logo.tall img { height: 44px; }
+  .word { font-weight: 800; font-size: 13pt; letter-spacing: .01em; color: var(--ink2); line-height: 1; text-align: center; }
+  .word small { display: block; font-weight: 600; font-size: 6pt; letter-spacing: .18em; color: var(--ink3); margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="sample">SAMPLE FOR APPROVAL — buyer, items and figures are made up · <span style="color:var(--brick)">OPTIONAL</span> = printed only when filled in at billing</div>
+
+  <!-- header -->
+  <div class="head">
+    <div>
+      <div class="brandrow">
+        <svg width="64" height="53" viewBox="0 0 120 100" aria-label="Kanakapatnam Paints and Hardwares">
+          <polygon points="10,44 60,8 110,44" fill="#C2491A"/><rect x="76" y="40" width="8" height="16" rx="4" fill="#C2491A"/>
+          <rect x="18" y="48" width="38" height="14" fill="#16181B"/><rect x="60" y="48" width="12" height="14" fill="#16181B"/><rect x="88" y="48" width="14" height="14" fill="#16181B"/>
+          <rect x="18" y="66" width="18" height="14" fill="#16181B"/><rect x="40" y="66" width="40" height="14" fill="#16181B"/><rect x="84" y="66" width="18" height="14" fill="#16181B"/>
+          <rect x="10" y="84" width="100" height="12" fill="#8A857C"/>
+        </svg>
+        <div><div class="name1">KANAKAPATNAM</div><div class="name2">PAINTS &amp; HARDWARES</div></div>
+      </div>
+      <div class="addr">
+        0-15-35/G23-F23, Trunk Road, Kavali, SPSR Nellore Dist., Andhra Pradesh 524201<br>
+        Phone 94409 30271 · GSTIN <b>37DZMPM4249D1Z3</b> · State: Andhra Pradesh (37)
+      </div>
+    </div>
+    <div>
+      <div class="title">TAX INVOICE</div>
+      <div class="copy">Original for recipient</div>
+      <div style="text-align:right"><span class="b2b">B2B</span></div>
+    </div>
+  </div>
+
+  <!-- bill to / ship to / details -->
+  <div class="top3">
+    <div>
+      <div class="lbl">Bill to</div>
+      <div class="pname">Sri Venkateswara Constructions</div>
+      <div>12-4-88, Pathuru Road, Kavali</div>
+      <div>Phone 98480 12345</div>
+      <div>GSTIN <b>37ABCFS1234K1Z9</b></div>
+      <div>State: Andhra Pradesh (37)</div>
+      <div>PAN <b>ABCFS1234K</b> <span class="opt">OPTIONAL</span></div>
+    </div>
+    <div>
+      <div class="lbl">Ship to</div>
+      <div class="pname">Apartment site</div>
+      <div>Musunur Road, Kavali</div>
+      <div>Contact: K. Ramu (mason)</div>
+      <div>Phone 99630 34567</div>
+    </div>
+    <div class="meta num">
+      <span>Invoice no.</span><b>KPH/26-27/000835</b>
+      <span>Date</span><span>14 Aug 2026, 11:20 am</span>
+      <span>Place of supply</span><span>Andhra Pradesh (37)</span>
+      <span>Payment</span><span>Credit</span>
+      <span>Reverse charge</span><span>No</span>
+      <span>E-way bill</span><span>1225 1814 2105 · 14 Aug 2026</span>
+      <span>Vehicle</span><span>AP39TX1234</span>
+    </div>
+  </div>
+
+  <!-- optional delivery boxes -->
+  <div class="boxes">
+    <div class="box"><div class="lbl">Delivery note <span class="opt">OPTIONAL</span></div><div class="v num">DC/26-27/000412</div></div>
+    <div class="box"><div class="lbl">Reference no. &amp; date <span class="opt">OPTIONAL</span></div><div class="v num">QTN/26-27/000120 · 12 Aug 2026</div></div>
+    <div class="box"><div class="lbl">Other references <span class="opt">OPTIONAL</span></div><div class="v">Second load of 3</div></div>
+    <div class="box"><div class="lbl">Dispatched through <span class="opt">OPTIONAL</span></div><div class="v">Own vehicle (tractor)</div></div>
+    <div class="box"><div class="lbl">Destination <span class="opt">OPTIONAL</span></div><div class="v">Musunur Road, Kavali</div></div>
+    <div class="box"><div class="lbl">Terms of delivery <span class="opt">OPTIONAL</span></div><div class="v">Delivered at site</div></div>
+  </div>
+
+  <!-- items -->
+  <table class="items num">
+    <thead>
+      <tr>
+        <th style="width:22px">#</th>
+        <th>Item</th>
+        <th>HSN/SAC</th>
+        <th class="r">Qty</th>
+        <th class="r">Rate</th>
+        <th>per</th>
+        <th class="r">Disc</th>
+        <th class="r">Taxable</th>
+        <th class="r">GST</th>
+        <th class="r">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>JSW Neosteel TMT Bar 12mm</td><td>72142090</td><td class="r">1.525</td><td class="r">62,500.00</td><td>ton</td><td class="r">—</td><td class="r">95,312.50</td><td class="r">18%</td><td class="r">1,12,468.76</td></tr>
+      <tr><td>2</td><td>UltraTech PPC Cement 50kg</td><td>2523</td><td class="r">100</td><td class="r">300.00</td><td>bag</td><td class="r">1%</td><td class="r">29,700.00</td><td class="r">18%</td><td class="r">35,046.00</td></tr>
+      <tr><td>3</td><td>Ultra Volt FR Wire 2.5 sq mm (90m)</td><td>8544</td><td class="r">3</td><td class="r">2,300.00</td><td>coil</td><td class="r">—</td><td class="r">6,900.00</td><td class="r">18%</td><td class="r">8,142.00</td></tr>
+      <tr class="charge"><td class="n">4</td><td>Loading and unloading charges</td><td class="n">996749</td><td></td><td></td><td></td><td></td><td class="r n">1,200.00</td><td class="r n">18%</td><td class="r n">1,416.00</td></tr>
+    </tbody>
+    <tfoot>
+      <tr><td></td><td>Total quantity</td><td></td><td colspan="3" class="r">1.525 ton · 100 bag · 3 coil</td><td></td><td class="r">1,33,112.50</td><td></td><td class="r">1,57,072.76</td></tr>
+    </tfoot>
+  </table>
+
+  <!-- tax working + totals -->
+  <div class="bottom">
+    <div style="flex:1;min-width:0">
+      <table class="hsn num">
+        <thead>
+          <tr><th rowspan="2" style="text-align:left">HSN/SAC</th><th rowspan="2" class="r">Taxable</th><th colspan="2">CGST</th><th colspan="2">SGST</th><th rowspan="2" class="r">Total tax</th></tr>
+          <tr><th class="r">Rate</th><th class="r">Amount</th><th class="r">Rate</th><th class="r">Amount</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>72142090</td><td class="r">95,312.50</td><td class="r">9%</td><td class="r">8,578.13</td><td class="r">9%</td><td class="r">8,578.13</td><td class="r">17,156.26</td></tr>
+          <tr><td>2523</td><td class="r">29,700.00</td><td class="r">9%</td><td class="r">2,673.00</td><td class="r">9%</td><td class="r">2,673.00</td><td class="r">5,346.00</td></tr>
+          <tr><td>8544</td><td class="r">6,900.00</td><td class="r">9%</td><td class="r">621.00</td><td class="r">9%</td><td class="r">621.00</td><td class="r">1,242.00</td></tr>
+          <tr><td>996749</td><td class="r">1,200.00</td><td class="r">9%</td><td class="r">108.00</td><td class="r">9%</td><td class="r">108.00</td><td class="r">216.00</td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td>Total</td><td class="r">1,33,112.50</td><td></td><td class="r">11,980.13</td><td></td><td class="r">11,980.13</td><td class="r">23,960.26</td></tr>
+        </tfoot>
+      </table>
+      <div class="words">
+        <span class="muted">Amount in words:</span> <b>Rupees One Lakh Fifty Seven Thousand Seventy Two Only</b><br>
+        <span class="muted">Tax in words:</span> <b>Rupees Twenty Three Thousand Nine Hundred Sixty and Twenty Six Paise Only</b>
+      </div>
+    </div>
+    <div class="tot num">
+      <span>Discount given</span><span class="r">300.00</span>
+      <span>Taxable value</span><span class="r">1,33,112.50</span>
+      <span>CGST</span><span class="r">11,980.13</span>
+      <span>SGST</span><span class="r">11,980.13</span>
+      <span>Round off</span><span class="r">−0.76</span>
+      <span class="big">TOTAL</span><span class="big r">₹1,57,072.00</span>
+    </div>
+  </div>
+
+  <!-- terms + signature -->
+  <div class="foot">
+    <div class="terms">
+      <b>Terms:</b> Goods once sold will not be taken back without the bill. Subject to Kavali jurisdiction.
+      <div class="muted" style="margin-top:4px">Billed by Ravi · Counter 1 · Computer-generated document</div>
+    </div>
+    <div class="sign">
+      <span>For</span>
+      <div class="gap"></div>
+      <div class="line"><div class="shop">Kanakapatnam Paints and Hardwares</div><div class="as">Authorised signatory</div></div>
+    </div>
+  </div>
+
+  <!-- brands we deal in -->
+  <div class="brands">
+    <div class="lbl">Authorised dealers for</div>
+    <div class="logos">
+      <div class="logo tall"><img src="logos/ultratech.jpeg" alt="UltraTech"></div>
+      <div class="logo"><img src="logos/asianpaints.avif" alt="Asian Paints"></div>
+      <div class="logo"><img src="logos/birlaopus.svg" alt="Birla Opus"></div>
+      <div class="logo tall"><img src="logos/birlawhite.svg" alt="Birla White"></div>
+      <div class="logo"><img src="logos/jsw.svg" alt="JSW Steel"></div>
+      <div class="logo"><img src="logos/legrand.png" alt="Legrand" style="filter:brightness(0);height:22px"></div>
+      <div class="logo"><div class="word">ULTRA VOLT<small>WIRES &amp; CABLES</small></div></div>
+      <div class="logo"><img src="logos/birlapivot.webp" alt="Birla Pivot" style="height:34px"></div>
+      <div class="logo"><img src="logos/astral.png" alt="Astral" style="filter:brightness(0);height:34px"></div>
+      <div class="logo"><div class="word">SUDHAKAR<small>PIPES</small></div></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -11,6 +11,7 @@ import { Page } from '../components/Layout';
 import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, cx, useDebounced, useToast } from '../components/ui';
 import { SalesReturnModal } from './Returns';
 import { EwayModal } from '../components/Eway';
+import { BillDetailsModal, filledCount, detailsFromRow } from '../components/BillDetails';
 import { PartnerPicker, type PartnerPick } from '../components/PartnerBits';
 import { DeliveryModal } from './Operations';
 
@@ -130,6 +131,7 @@ export function InvoiceModal({ id, onClose, startEway = false }: { id: number | 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [ewayOpen, setEwayOpen] = useState(startEway);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // sent here from billing ("Yes, make e-way bill"): open the e-way bill form straight away
   useEffect(() => {
     if (startEway && id != null) setEwayOpen(true);
@@ -191,7 +193,7 @@ export function InvoiceModal({ id, onClose, startEway = false }: { id: number | 
   return (
     <>
       <Modal
-        open={id != null && !cancelOpen && !returnOpen && !ewayOpen && !tagOpen && !deliveryOpen}
+        open={id != null && !cancelOpen && !returnOpen && !ewayOpen && !tagOpen && !deliveryOpen && !detailsOpen}
         onClose={onClose}
         title={d ? `Bill ${d.number}` : 'Bill'}
         width={860}
@@ -207,6 +209,9 @@ export function InvoiceModal({ id, onClose, startEway = false }: { id: number | 
                 </Button>
               )}
               {d.status === 'posted' && (can('billing.create') || can('stock.adjust')) && <Button onClick={() => setDeliveryOpen(true)}>Delivery…</Button>}
+              {d.status === 'posted' && can('billing.create') && (
+                <Button onClick={() => setDetailsOpen(true)}>{filledCount(detailsFromRow(d.details)) ? 'Ship-to & details…' : 'Add ship-to / details…'}</Button>
+              )}
               {d.status === 'posted' && can('billing.create') && (
                 <Button onClick={() => setEwayOpen(true)}>
                   {d.transport?.ewb_no ? `EWB ${d.transport.ewb_no}` : ewayNeeded({ taxablePaise: d.taxable_paise, cgstPaise: d.cgst_paise, sgstPaise: d.sgst_paise, igstPaise: d.igst_paise }) && !d.transport?.not_needed_reason ? 'E-way bill needed…' : 'E-way bill…'}
@@ -317,6 +322,7 @@ export function InvoiceModal({ id, onClose, startEway = false }: { id: number | 
       </Modal>
       <SalesReturnModal invoice={d ?? null} open={returnOpen} onClose={() => setReturnOpen(false)} />
       {d && <EwayModal invoiceId={d.id} open={ewayOpen} onClose={() => setEwayOpen(false)} />}
+      {d && <BillDetailsModal invoiceId={d.id} number={d.number} initial={d.details ?? null} open={detailsOpen} onClose={() => setDetailsOpen(false)} onSaved={() => void inv.refetch()} />}
       {d && <DeliveryModal invoiceId={d.id} open={deliveryOpen} onClose={() => setDeliveryOpen(false)} />}
       <Modal open={tagOpen} onClose={() => setTagOpen(false)} title="Tag a partner" footer={<><Button variant="ghost" onClick={() => setTagOpen(false)}>Cancel</Button><Button variant="primary" disabled={!tagPartner} onClick={() => void saveTag()}>Tag partner</Button></>}>
         <PartnerPicker partner={tagPartner} siteId={tagSite} onChange={(p, site) => (setTagPartner(p), setTagSite(site))} />

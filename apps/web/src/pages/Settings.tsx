@@ -320,6 +320,7 @@ function GstSettings() {
         salesPriceMode: s.data.salesPriceMode!,
         purchasePriceMode: s.data.purchasePriceMode!,
         invoiceLabels: s.data.invoiceLabels!,
+        invoiceShowBrands: String(s.data.invoiceShowBrands ?? true),
         creditNotePrefix: s.data.creditNotePrefix!,
         debitNotePrefix: s.data.debitNotePrefix!,
       });
@@ -327,7 +328,7 @@ function GstSettings() {
   const save = async () => {
     setBusy(true);
     try {
-      await put('/api/settings', { ...f, creditNotePrefix: f.creditNotePrefix?.toUpperCase().trim(), debitNotePrefix: f.debitNotePrefix?.toUpperCase().trim() });
+      await put('/api/settings', { ...f, invoiceShowBrands: f.invoiceShowBrands !== 'false', creditNotePrefix: f.creditNotePrefix?.toUpperCase().trim(), debitNotePrefix: f.debitNotePrefix?.toUpperCase().trim() });
       toast({ tone: 'good', text: 'Saved' });
       await qc.invalidateQueries({ queryKey: ['settings'] });
       await reload();
@@ -371,7 +372,12 @@ function GstSettings() {
               <option value="te-en">English + Telugu</option>
             </Select>
           </Field>
-          <div />
+          <Field label="Brand logos at the foot of bills" hint="“Authorised dealers for” row">
+            <Select value={f.invoiceShowBrands ?? 'true'} onChange={t('invoiceShowBrands')}>
+              <option value="true">Show</option>
+              <option value="false">Don't show</option>
+            </Select>
+          </Field>
           <Field label="Credit note prefix" hint={`e.g. ${f.creditNotePrefix || 'CN'}/26-27/000001`}>
             <Input value={f.creditNotePrefix ?? ''} onChange={t('creditNotePrefix')} maxLength={4} />
           </Field>

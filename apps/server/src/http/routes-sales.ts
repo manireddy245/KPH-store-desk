@@ -4,7 +4,7 @@ import {
   cancelInvoice,
   cancelReceipt,
   clearDraft,
-  createInvoice,
+  createInvoice, saveInvoiceDetails,
   createReceipt,
   getDraft,
   getInvoice,
@@ -35,6 +35,21 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
         creditOverrideToken: z.string().optional(),
         partnerId: z.number().int().positive().nullable().optional(),
         siteId: z.number().int().positive().nullable().optional(),
+        details: z
+          .object({
+            shipToName: z.string().max(100).nullable().optional(),
+            shipToAddress: z.string().max(300).nullable().optional(),
+            shipToContact: z.string().max(100).nullable().optional(),
+            shipToPhone: z.string().max(20).nullable().optional(),
+            customerPan: z.string().max(10).nullable().optional(),
+            deliveryNote: z.string().max(60).nullable().optional(),
+            reference: z.string().max(80).nullable().optional(),
+            otherReferences: z.string().max(120).nullable().optional(),
+            dispatchedThrough: z.string().max(80).nullable().optional(),
+            destination: z.string().max(80).nullable().optional(),
+            termsOfDelivery: z.string().max(120).nullable().optional(),
+          })
+          .optional(),
         lines: z
           .array(
             z.object({
@@ -75,6 +90,23 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
     return listInvoices(db.app, q);
   });
 
+  app.put('/api/invoices/:id/details', async (req) => {
+    const b = z.object({ 
+            shipToName: z.string().max(100).nullable().optional(),
+            shipToAddress: z.string().max(300).nullable().optional(),
+            shipToContact: z.string().max(100).nullable().optional(),
+            shipToPhone: z.string().max(20).nullable().optional(),
+            customerPan: z.string().max(10).nullable().optional(),
+            deliveryNote: z.string().max(60).nullable().optional(),
+            reference: z.string().max(80).nullable().optional(),
+            otherReferences: z.string().max(120).nullable().optional(),
+            dispatchedThrough: z.string().max(80).nullable().optional(),
+            destination: z.string().max(80).nullable().optional(),
+            termsOfDelivery: z.string().max(120).nullable().optional(),
+           }).parse(req.body);
+    return saveInvoiceDetails(db.app, ctxOf(req), z.object({ id }).parse(req.params).id, b);
+  });
+
   app.get('/api/invoices/:id', async (req) => {
     const ctx = ctxOf(req);
     const invId = z.object({ id }).parse(req.params).id;
@@ -89,6 +121,7 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
       stateName: s.stateName,
       terms: s.invoiceTerms,
       labels: s.invoiceLabels,
+      showBrands: s.invoiceShowBrands,
       place: s.storePlace,
       pincode: s.storePincode,
     };

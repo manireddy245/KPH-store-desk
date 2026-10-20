@@ -24,6 +24,8 @@ export interface ProductInput {
   /** Pack contents for reports, e.g. 20 litres in a 20L bucket. */
   contentsMilli?: number | null;
   contentsUnit?: string | null;
+  /** A service (loading charges, transport…): sold on bills, never counted as stock. */
+  isService?: boolean;
   /** Other units this product is sold/bought in (replaces the whole list when given). */
   units?: UnitInput[];
 }
@@ -60,6 +62,7 @@ const COLUMN: Record<string, string> = {
   priceIncludesTax: 'price_includes_tax',
   contentsMilli: 'contents_milli',
   contentsUnit: 'contents_unit',
+  isService: 'is_service',
 };
 
 function checkFieldPermissions(ctx: Ctx, input: ProductInput, creating: boolean) {
@@ -134,7 +137,9 @@ export async function listProducts(
                         'for_sale', u.for_sale, 'for_purchase', u.for_purchase, 'price_paise', u.price_paise) order by u.factor_num::numeric / u.factor_den)
                        from product_units u where u.product_id = p.id), '[]'::json) as units,
              coalesce(sb.qty_milli, 0) as qty_milli,
-             case when coalesce(sb.qty_milli, 0) <= 0 then 'out'
+             p.is_service,
+             case when p.is_service then 'service'
+                  when coalesce(sb.qty_milli, 0) <= 0 then 'out'
                   when coalesce(sb.qty_milli, 0) <= coalesce(p.reorder_level_milli, ${s.lowStockThresholdMilli}) then 'low'
                   else 'ok' end as stock_status
       from products p
@@ -168,16 +173,16 @@ export async function createProduct(sql: Sql, ctx: Ctx, input: ProductInput & { 
       const [p] = await tx<{ id: number }[]>`
         insert into products (sku, name, category_id, brand_id, unit_code, hsn, gst_rate_bp, sale_price_paise, cost_price_paise,
                               mrp_paise, reorder_level_milli, max_disc_type, max_disc_value, is_sample, price_includes_tax,
-                              contents_milli, contents_unit)
+                              contents_milli, contents_unit, is_service)
         values (${input.sku.trim()}, ${input.name.trim()}, ${input.categoryId ?? null}, ${input.brandId ?? null}, ${input.unitCode},
                 ${input.hsn?.trim() || null}, ${input.gstRateBp ?? 1800}, ${input.salePricePaise ?? 0}, ${input.costPricePaise ?? null},
                 ${input.mrpPaise ?? null}, ${input.reorderLevelMilli ?? null}, ${input.maxDiscType ?? null},
                 ${input.maxDiscValue ?? null}, ${opts.isSample ?? false}, ${input.priceIncludesTax ?? false},
-                ${input.contentsMilli ?? null}, ${input.contentsUnit ?? null})
+                ${input.contentsMilli ?? null}, ${input.contentsUnit ?? null}, ${input.isService ?? false})
         returning id`;
       const id = p!.id;
       if (input.units?.length) await saveUnits(tx, id, input.unitCode, input.units);
-      if (input.openingQtyMilli && input.openingQtyMilli > 0) {
+      if (input.openingQtyMilli && input.openingQtyMilli > 0 && !input.isService) {
         await tx`insert into stock_movements (product_id, qty_milli, kind, unit_cost_paise, reason, user_id, device_id, at)
                  values (${id}, ${input.openingQtyMilli}, 'opening', ${input.costPricePaise ?? null}, 'Opening stock', ${ctx.userId}, ${ctx.deviceId}, ${opts.openingAt ?? new Date()})`;
       }

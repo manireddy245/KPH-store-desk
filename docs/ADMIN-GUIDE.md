@@ -33,6 +33,12 @@ For the owner and whoever runs the books. The phase guides have the details; thi
 - If the Dashboard says a backup or copy failed, fix it the same day (usually the USB drive was unplugged).
 - **Restore:** Settings → Data & backups → Restore from a backup → choose the file (`.json.gz`, or `.enc` with the passphrase) → type RESTORE. The current data is saved first, just in case.
 
+## The printed bill
+- GST rate and amount (CGST / SGST, or IGST) are on every line, with HSN (goods) or SAC (services) under each item, and the total quantity per unit.
+- **Ship to**, customer **PAN** and the delivery boxes are printed only when filled in at billing. "Delivery note" fills itself from the delivery challan, and "Reference" from the quotation the bill came from.
+- **Services** (loading / unloading, transport, cutting…): Inventory → Add product → tick **"This is a service"**, and put its SAC code (loading / unloading is 996749) in the HSN box. Services carry GST but never count as stock, are left out of stock counts and reorder lists, and can't be put on a purchase.
+- The **"Authorised dealers for"** brand logos are at the foot of every bill. Turn them off in Settings → GST & invoices. The logos were taken from each company's own website. For crisp printing and to be safe on brand rules, ask your distributors for their official dealer logo files and give them to the developer.
+
 ## Settings worth checking once
 - **Shop & billing:**
   - shop details on bills, invoice prefix
