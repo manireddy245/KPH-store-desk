@@ -27,7 +27,7 @@ export function Settings() {
       <PageTitle telugu="సెట్టింగ్‌లు" title="Settings" />
       <nav aria-label="Settings" className="flex flex-wrap gap-1 border-b border-line">
         {tabs.map((t) => (
-          <NavLink key={t.to} to={t.to} className={({ isActive }) => cx('-mb-px flex h-11 items-center px-3 text-sm', isActive ? 'border-b-[3px] border-brick font-bold' : 'text-ink-3 hover:text-ink')}>
+          <NavLink key={t.to} to={`/settings/${t.to}`}className={({ isActive }) => cx('-mb-px flex h-11 items-center px-3 text-sm', isActive ? 'border-b-[3px] border-brick font-bold' : 'text-ink-3 hover:text-ink')}>
             {t.label}
           </NavLink>
         ))}
@@ -40,7 +40,7 @@ export function Settings() {
         <Route path="counters" element={<Counters />} />
         <Route path="import" element={<Import />} />
         <Route path="data" element={<DataBackups />} />
-        <Route path="*" element={<Navigate to={tabs[0]?.to ?? 'store'} replace />} />
+        <Route path="*" element={<Navigate to={`/settings/${tabs[0]?.to ?? 'store'}`} replace />} />
       </Routes>
     </Page>
   );
