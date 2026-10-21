@@ -7,7 +7,7 @@ import { normalizeText } from './matching.js';
 import { listCustomers, listSuppliers } from './parties.js';
 import { listInvoices } from './billing.js';
 import { listProducts } from './products.js';
-import { postGemini, scanBill, type ModelCaller, type ScanPage } from './scanner.js';
+import { postGemini, scanBill, thinkingConfig, type ModelCaller, type ScanPage, type ThinkingLevel } from './scanner.js';
 import { getSettings } from './settings.js';
 
 /**
@@ -62,7 +62,7 @@ export interface GeminiContent {
   parts: ({ text: string } | { inline_data: { mime_type: string; data: string } })[];
 }
 
-export type AssistantModel = (args: { apiKey: string; model: string; system: string; contents: GeminiContent[] }) => Promise<AgentReply>;
+export type AssistantModel = (args: { apiKey: string; model: string; system: string; contents: GeminiContent[]; thinking?: ThinkingLevel }) => Promise<AgentReply>;
 
 const LOOKUPS: LookupTool[] = ['find_products', 'find_customers', 'find_suppliers', 'sales_summary', 'low_stock', 'recent_bills'];
 const ACTIONS: ActionType[] = ['purchase_from_photo', 'bill_draft', 'stock_adjust', 'add_customer', 'receive_payment'];
@@ -120,14 +120,14 @@ const SCHEMA = {
   required: ['reply', 'lookups', 'actions'],
 };
 
-export const callAssistantModel: AssistantModel = async ({ apiKey, model, system, contents }) => {
+export const callAssistantModel: AssistantModel = async ({ apiKey, model, system, contents, thinking }) => {
   const out = await postGemini(
     apiKey,
     model,
     {
       system_instruction: { parts: [{ text: system }] },
       contents,
-      generationConfig: { temperature: 0.2, response_mime_type: 'application/json', response_schema: SCHEMA },
+      generationConfig: { temperature: 0.2, response_mime_type: 'application/json', response_schema: SCHEMA, ...thinkingConfig(model, thinking) },
     },
     90_000,
   );
@@ -638,7 +638,7 @@ async function respond(sql: Sql, ctx: Ctx, userMsgId: number, opts: { scanDir: s
   let answer: AgentReply;
   try {
     for (let round = 1; ; round++) {
-      answer = await model({ apiKey: settings.geminiApiKey, model: settings.geminiModel, system, contents });
+      answer = await model({ apiKey: settings.geminiApiKey, model: settings.geminiModel, system, contents, thinking: settings.geminiThinking });
       if (round === 1 && hasAudio && answer.heard?.trim()) heard = answer.heard.trim();
       const lookups = (answer.lookups ?? []).filter((l) => LOOKUPS.includes(l.tool)).slice(0, 6);
       if (!lookups.length || round >= MAX_ROUNDS) break;

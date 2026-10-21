@@ -72,6 +72,7 @@ interface StoreSettingsDto {
   allowNegativeStock: boolean;
   geminiApiKeySet: boolean;
   geminiModel: string;
+  geminiThinking: 'minimal' | 'low' | 'medium' | 'high';
   purchasePrefix: string;
   ownerPhone: string;
   ownerEmail: string;
@@ -117,6 +118,7 @@ function StoreSettings() {
       hint: s.discountHintEnabled,
       negative: s.allowNegativeStock,
       geminiModel: s.geminiModel,
+      geminiThinking: s.geminiThinking,
       purchasePrefix: s.purchasePrefix,
       ownerPhone: s.ownerPhone,
       ownerEmail: s.ownerEmail,
@@ -157,6 +159,7 @@ function StoreSettings() {
         discountHintEnabled: !!f.hint,
         allowNegativeStock: !!f.negative,
         geminiModel: String(f.geminiModel).trim(),
+        geminiThinking: String(f.geminiThinking ?? 'low'),
         purchasePrefix: String(f.purchasePrefix).toUpperCase().trim(),
         ownerPhone: String(f.ownerPhone ?? '').trim(),
         ownerEmail: String(f.ownerEmail ?? '').trim(),
@@ -249,8 +252,16 @@ function StoreSettings() {
           <Field label="Purchase number prefix" hint={`Our purchase numbers look like ${String(f.purchasePrefix || 'PUR')}/26-27/000001`}>
             <Input value={String(f.purchasePrefix ?? '')} onChange={t('purchasePrefix')} maxLength={4} />
           </Field>
-          <Field label="Gemini model (scanner and assistant)" hint="Change only if Google retires this model">
+          <Field label="Gemini model (scanner and assistant)" hint="Change only if Google retires this model. Faster: gemini-3.5-flash-lite">
             <Input value={String(f.geminiModel ?? '')} onChange={t('geminiModel')} />
+          </Field>
+          <Field label="Gemini thinking (speed vs care)" hint="Low is fast and reads bills well. Raise it only if bills are read wrongly.">
+            <Select value={String(f.geminiThinking ?? 'low')} onChange={t('geminiThinking')}>
+              <option value="minimal">Minimal — fastest</option>
+              <option value="low">Low — fast (recommended)</option>
+              <option value="medium">Medium — Google's default, slower</option>
+              <option value="high">High — slowest</option>
+            </Select>
           </Field>
           <Field label="Gemini API key (invoice scanner and assistant)" hint={q.data.geminiApiKeySet ? 'A key is saved. Type a new one to replace it.' : 'Not set. Kept on this server only; never included in backups.'} className="sm:col-span-2">
             <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />

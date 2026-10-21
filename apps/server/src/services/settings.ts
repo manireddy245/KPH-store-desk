@@ -23,6 +23,8 @@ export interface StoreSettings {
   geminiApiKey: string;
   /** Gemini model used by the invoice scanner; change it here when Google retires a model. */
   geminiModel: string;
+  /** How long Gemini "thinks" before answering (Gemini 3 models): lower is faster. */
+  geminiThinking: 'minimal' | 'low' | 'medium' | 'high';
   purchasePrefix: string;
   paymentPrefix: string;
   expensePrefix: string;
@@ -92,6 +94,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   autoBackupHour: 21,
   geminiApiKey: '',
   geminiModel: 'gemini-3.8-flash',
+  geminiThinking: 'low',
   purchasePrefix: 'PUR',
   paymentPrefix: 'PAY',
   expensePrefix: 'EXP',

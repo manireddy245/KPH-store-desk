@@ -94,7 +94,16 @@ Return every item line exactly as printed. For each line:
 Also: supplier name, supplier GSTIN, invoice number, invoice date as YYYY-MM-DD (Indian dates are day-month-year), whether the supply is inter-state (IGST charged), freight/transport/loading charges, round off, and the grand total.
 Use plain numbers without commas or currency symbols. Do not invent values: use null when something is not printed or unreadable. Put anything unclear (smudged figures, handwritten changes) in notes.`;
 
-export type ModelCaller = (args: { apiKey: string; model: string; pages: ScanPage[] }) => Promise<ReadBill>;
+export type ModelCaller = (args: { apiKey: string; model: string; pages: ScanPage[]; thinking?: ThinkingLevel }) => Promise<ReadBill>;
+export type ThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
+
+/**
+ * Gemini 3 models think before answering ("medium" by default), which is slow for reading a bill.
+ * A lower level answers much faster. Older models don't take this setting, so it is left out for them.
+ */
+export function thinkingConfig(model: string, level: ThinkingLevel | undefined) {
+  return level && /^gemini-3/.test(model) ? { thinkingConfig: { thinkingLevel: level } } : {};
+}
 
 /** POST a generateContent request to Google Gemini and return the answer text. Errors become plain messages. */
 /** Waits between automatic retries when Google says it is busy (tests set these to 0). */
@@ -162,10 +171,10 @@ function retryable(e: AppError) {
   return e;
 }
 
-export const callGemini: ModelCaller = async ({ apiKey, model, pages }) => {
+export const callGemini: ModelCaller = async ({ apiKey, model, pages, thinking }) => {
   const out = await postGemini(apiKey, model, {
     contents: [{ role: 'user', parts: [{ text: PROMPT }, ...pages.map((p) => ({ inline_data: { mime_type: p.mimeType, data: p.base64 } }))] }],
-    generationConfig: { temperature: 0, response_mime_type: 'application/json', response_schema: SCHEMA },
+    generationConfig: { temperature: 0, response_mime_type: 'application/json', response_schema: SCHEMA, ...thinkingConfig(model, thinking) },
   });
   return parseReadBill(out);
 };
@@ -244,7 +253,7 @@ export async function scanBill(
 
   let read: ReadBill;
   try {
-    read = await (opts.caller ?? callGemini)({ apiKey: settings.geminiApiKey, model: settings.geminiModel, pages: opts.pages });
+    read = await (opts.caller ?? callGemini)({ apiKey: settings.geminiApiKey, model: settings.geminiModel, pages: opts.pages, thinking: settings.geminiThinking });
   } catch (e) {
     await sql`update purchase_scans set status = 'failed', error = ${(e as Error).message}, page_files = ${files} where id = ${scanId}`;
     throw e;

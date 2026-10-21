@@ -58,6 +58,7 @@ export async function registerAdminRoutes(app: FastifyInstance, { db, live }: Sh
         allowNegativeStock: z.boolean(),
         autoBackupHour: z.number().int().min(0).max(23),
         geminiApiKey: z.string(),
+        geminiThinking: z.enum(['minimal', 'low', 'medium', 'high']),
         geminiModel: z.string().regex(/^[a-z0-9][a-z0-9.-]{2,60}$/, 'Model name looks wrong'),
         purchasePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/),
         creditNotePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/),
