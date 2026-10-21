@@ -17,7 +17,9 @@ REPO=https://github.com/manireddy245/KPH-store-desk.git
 APP=/opt/kph-store-desk
 DATA=/var/lib/kph-store-desk
 IP=$(curl -fsS https://api.ipify.org || hostname -I | awk '{print $1}')
-HOST=${1:-${IP//./-}.sslip.io}
+# No address given: keep the one already set up (e.g. desk.kanakapatnamstores.in), else the sslip.io name
+CURRENT=$(sed -n '1s/ *{$//p' /etc/caddy/Caddyfile 2>/dev/null || true)
+HOST=${1:-${CURRENT:-${IP//./-}.sslip.io}}
 
 [ "$(id -u)" = 0 ] || { echo "Run as root"; exit 1; }
 echo "== Store Desk will be at https://$HOST"
