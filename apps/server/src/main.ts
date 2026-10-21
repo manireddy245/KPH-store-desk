@@ -12,6 +12,16 @@ const config = loadConfig();
 const db = new Workspaces(config);
 
 console.log(`[kph] data folder: ${config.dataDir}`);
+// Already running (another black window, or started at login)? Don't start a second copy of the database.
+try {
+  const res = await fetch(`http://127.0.0.1:${config.port}/api/bootstrap`, { signal: AbortSignal.timeout(3000) });
+  if (res.ok) {
+    console.log(`\n  Store Desk is already running: open http://localhost:${config.port}\n  (This window isn't needed — you can close it.)\n`);
+    process.exit(0);
+  }
+} catch {
+  /* not running: start it */
+}
 try {
   await db.start();
 } catch (e) {
