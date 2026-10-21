@@ -50,7 +50,7 @@ Short and simple: how to bill, take payments and handle stock. Telugu is below t
 - Operations → **Deliveries**: a challan for each trip. Mark it Out, then Delivered.
 
 ### Stock (stock staff)
-- Purchases → **New purchase**: enter the supplier's bill, or scan it with the camera.
+- Purchases → **New purchase**: enter the supplier's bill, or scan it with the camera. If the bill is **already entered**, it says so before saving and shows the old one. Add it again only if it really is a different bill.
 - Stock → **Stock count**: type what is on the shelf. Every difference needs a reason (damaged, leakage, shortage…).
 - Inventory → click a stock number to correct it, with a reason.
 

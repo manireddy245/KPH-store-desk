@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { exclFromIncl, formatPaise, formatPercent, formatQty, inclFromExcl, parsePercent, parseQty, parseRupees, standardRodsPerTonne, formatCost, parseCost } from '@kph/core';
+import { exclFromIncl, formatPaise, formatPercent, formatQty, inclFromExcl, parsePercent, parseQty, parseRupees, standardRodsPerTonne, formatCost, parseCost, parseMarkup, priceFromCost } from '@kph/core';
 import { ApiError, del, get, patch, post } from '../lib/api';
 import { csvCell, downloadText, fmtDateTime } from '../lib/format';
 import { useSession } from '../lib/session';
@@ -23,6 +23,15 @@ export function Inventory() {
   const [editing, setEditing] = useState<ProductRow | 'new' | null>(null);
   const [adjusting, setAdjusting] = useState<ProductRow | null>(null);
   const [card, setCard] = useState<ProductRow | null>(null);
+  /** Quick price from cost: a markup chip dropped on (or tapped onto) a product opens its price box with "+N%". */
+  const [armed, setArmed] = useState<string | null>(null);
+  const [dropped, setDropped] = useState<{ id: number; text: string; n: number } | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const quickPrice = can('products.edit_price') && can('products.view_cost');
+  const dropOn = (p: ProductRow, text: string) => {
+    setDropped((d) => ({ id: p.id, text, n: (d?.n ?? 0) + 1 }));
+    setArmed(null);
+  };
 
   const rows = useMemo(() => {
     const words = search.toLowerCase().split(/\s+/).filter(Boolean);
@@ -111,6 +120,34 @@ export function Inventory() {
         </label>
       </div>
 
+      {quickPrice && (
+        <div className="flex flex-wrap items-center gap-2 rounded-[6px] border border-line bg-paper px-3 py-2 text-sm">
+          <span className="font-semibold">Quick price from cost</span>
+          <span className="text-ink-3">drag a markup onto a product, or tap one then tap a price · Enter saves</span>
+          <div className="ml-auto flex flex-wrap gap-1.5">
+            {['+5%', '+10%', '+15%', '+20%', '+25%'].map((m) => (
+              <button
+                key={m}
+                type="button"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/x-markup', m);
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
+                onDragEnd={() => setDragOver(null)}
+                onClick={() => setArmed((a) => (a === m ? null : m))}
+                aria-pressed={armed === m}
+                title={`Selling price = cost + ${m.slice(1)} (GST is added on the bill)`}
+                className={cx('num h-9 cursor-grab rounded-full border px-3.5 font-bold active:cursor-grabbing', armed === m ? 'border-teal bg-teal text-white' : 'border-line-2 bg-white hover:border-teal')}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+          {armed && <span className="w-full text-[13px] font-semibold text-teal">Now tap a product's price to set it to cost {armed}. Tap {armed} again to stop.</span>}
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-[6px] border border-line bg-white">
         <Table
           minWidth={1100}
@@ -131,7 +168,24 @@ export function Inventory() {
           }
         >
           {rows.map((p) => (
-            <tr key={p.id} className={cx(!p.active && 'opacity-60')}>
+            <tr
+              key={p.id}
+              className={cx(!p.active && 'opacity-60', dragOver === p.id && 'outline outline-2 -outline-offset-2 outline-teal')}
+              onDragOver={(e) => {
+                if (!quickPrice || !e.dataTransfer.types.includes('text/x-markup')) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                if (dragOver !== p.id) setDragOver(p.id);
+              }}
+              onDragLeave={() => setDragOver((d) => (d === p.id ? null : d))}
+              onDrop={(e) => {
+                const m = e.dataTransfer.getData('text/x-markup');
+                setDragOver(null);
+                if (!m) return;
+                e.preventDefault();
+                dropOn(p, m);
+              }}
+            >
               <td>
                 <div className="font-bold">
                   {p.name} {!p.active && <Badge>Inactive</Badge>}
@@ -157,7 +211,13 @@ export function Inventory() {
                 {!p.is_service && <div className={cx('text-[11px]', statusTone[p.stock_status])}>{p.stock_status === 'ok' ? 'OK' : p.stock_status === 'low' ? `Low (${formatQty(p.reorder_level_milli ?? 0) || 'default'})` : 'Out of stock'}</div>}
               </td>
               <td className="num text-right">
-                <InlinePrice p={p} editable={can('products.edit_price')} />
+                <InlinePrice
+                  p={p}
+                  editable={can('products.edit_price')}
+                  preset={dropped?.id === p.id ? dropped : null}
+                  armed={armed}
+                  onArmedUse={(text) => dropOn(p, text)}
+                />
               </td>
               <td className="num text-right text-ink-3">
                 {formatPaise(p.price_includes_tax ? exclFromIncl(p.sale_price_paise, p.gst_rate_bp) : inclFromExcl(p.sale_price_paise, p.gst_rate_bp))}
@@ -202,19 +262,36 @@ export function Inventory() {
   );
 }
 
-function InlinePrice({ p, editable }: { p: ProductRow; editable: boolean }) {
+/** "+20%" in a price box → cost + 20% (in the product's own price mode). null = not a markup. */
+type Markup = { error: string } | { paise: number; bp: number; costCp: number };
+function markupPrice(p: Pick<ProductRow, 'cost_price_cp' | 'gst_rate_bp' | 'price_includes_tax'>, text: string, costCp = p.cost_price_cp): Markup | null {
+  const bp = parseMarkup(text);
+  if (bp == null) return null;
+  if (costCp == null) return { error: 'No cost price yet — enter the cost first' };
+  return { paise: priceFromCost(costCp, bp, p.gst_rate_bp, p.price_includes_tax), bp, costCp };
+}
+
+function InlinePrice({ p, editable, preset, armed, onArmedUse }: { p: ProductRow; editable: boolean; preset?: { text: string; n: number } | null; armed?: string | null; onArmedUse?: (text: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const qc = useQueryClient();
   const toast = useToast();
+  // a markup chip was dropped on this product: open the box with it, ready for Enter
+  useEffect(() => {
+    if (!preset || !editable) return;
+    setValue(preset.text);
+    setEditing(true);
+  }, [preset?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!editable) return <>{formatPaise(p.sale_price_paise)}</>;
+  const mk = markupPrice(p, value);
   if (!editing)
     return (
       <button
         type="button"
-        title="Click to change price"
+        title={armed ? `Set price to cost ${armed}` : 'Click to change price — or type +20% for cost + 20%'}
         onClick={() => {
+          if (armed && onArmedUse) return onArmedUse(armed);
           setValue(formatPaise(p.sale_price_paise).replace(/,/g, ''));
           setEditing(true);
         }}
@@ -224,12 +301,13 @@ function InlinePrice({ p, editable }: { p: ProductRow; editable: boolean }) {
       </button>
     );
   const save = async () => {
-    const paise = parseRupees(value);
-    if (paise == null || paise < 0) return toast({ tone: 'bad', text: 'Enter a valid price' });
+    if (mk && 'error' in mk) return toast({ tone: 'bad', text: mk.error });
+    const paise = mk ? mk.paise : parseRupees(value);
+    if (paise == null || paise < 0) return toast({ tone: 'bad', text: 'Enter a price, or a markup like +20%' });
     setBusy(true);
     try {
       await patch(`/api/products/${p.id}`, { salePricePaise: paise });
-      toast({ tone: 'good', text: `${p.name}: price now ₹${formatPaise(paise)} (excl. GST)` });
+      toast({ tone: 'good', text: `${p.name}: price now ₹${formatPaise(paise)} (${p.price_includes_tax ? 'incl.' : 'excl.'} GST)${mk ? ` = cost ${value.trim()}` : ''}` });
       await qc.invalidateQueries({ queryKey: ['products'] });
       setEditing(false);
     } catch (e) {
@@ -238,20 +316,36 @@ function InlinePrice({ p, editable }: { p: ProductRow; editable: boolean }) {
       setBusy(false);
     }
   };
+  const excl = mk && 'paise' in mk ? (p.price_includes_tax ? exclFromIncl(mk.paise, p.gst_rate_bp) : mk.paise) : null;
   return (
-    <input
-      aria-label={`New price for ${p.name}`}
-      autoFocus
-      disabled={busy}
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => setEditing(false)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') void save();
-        if (e.key === 'Escape') setEditing(false);
-      }}
-      className="num h-8 w-28 rounded-[4px] border-2 border-teal px-2 text-right outline-none"
-    />
+    <span className="relative inline-flex flex-col items-end">
+      <input
+        aria-label={`New price for ${p.name}`}
+        autoFocus
+        disabled={busy}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => setEditing(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void save();
+          if (e.key === 'Escape') setEditing(false);
+        }}
+        className="num h-8 w-28 rounded-[4px] border-2 border-teal px-2 text-right outline-none"
+      />
+      {mk && (
+        <span role="status" className={cx('absolute right-0 top-9 z-10 whitespace-nowrap rounded-[4px] border bg-white px-2 py-1 text-left text-[12px] shadow-md', 'error' in mk ? 'border-bad text-bad' : 'border-teal text-ink')}>
+          {'error' in mk ? (
+            mk.error
+          ) : (
+            <>
+              Cost ₹{formatCost(mk.costCp)} {value.trim()} = <b>₹{formatPaise(excl!)}</b> excl. GST · ₹{formatPaise(inclFromExcl(excl!, p.gst_rate_bp))} with GST
+              <br />
+              <span className="text-ink-3">Enter saves · Esc cancels</span>
+            </>
+          )}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -291,11 +385,13 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
             inclMode: product.price_includes_tax ? '1' : '0',
             contents: product.contents_milli != null ? formatQty(product.contents_milli) : '',
             service: product.is_service ? '1' : '0',
+            ...buyUnitOf(product),
           }
-        : { sku: '', name: '', categoryId: '', brand: '', unitCode: 'pcs', hsn: '', gst: '18', price: '', cost: '', mrp: '', reorder: '', discType: '', disc: '', opening: '', active: '1', inclMode: '0', contents: '', service: '0' },
+        : { sku: '', name: '', categoryId: '', brand: '', unitCode: 'pcs', hsn: '', gst: '18', price: '', cost: '', mrp: '', reorder: '', discType: '', disc: '', opening: '', active: '1', inclMode: '0', contents: '', service: '0', buyUnit: 'pcs', perBuy: '' },
     );
+    const buy = product ? buyUnitOf(product).buyUnit : null;
     setUnits(
-      (product?.units ?? []).map((u) => ({
+      (product?.units ?? []).filter((u) => !(u.unit_code === buy && u.for_purchase && !u.for_sale)).map((u) => ({
         unitCode: u.unit_code,
         factor: u.factor_den === 1 ? String(u.factor_num) : formatQty(Math.round((u.factor_num * 1000) / u.factor_den)),
         price: u.price_paise != null ? formatPaise(u.price_paise).replace(/,/g, '') : '',
@@ -306,7 +402,12 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
   }, [open, product]);
 
   const set = (k: string) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
-  const priceP = parseRupees(f.price ?? '');
+  const formMk = markupPrice(
+    { cost_price_cp: product?.cost_price_cp ?? null, gst_rate_bp: parsePercent(f.gst ?? '') ?? 1800, price_includes_tax: f.inclMode === '1' },
+    f.price ?? '',
+    f.cost?.trim() ? parseCost(f.cost) : (product?.cost_price_cp ?? null),
+  );
+  const priceP = formMk ? ('paise' in formMk ? formMk.paise : null) : parseRupees(f.price ?? '');
   const gstBp = parsePercent(f.gst ?? '');
   const inclMode = f.inclMode === '1';
   const other = priceP != null && gstBp != null ? (inclMode ? exclFromIncl(priceP, gstBp) : inclFromExcl(priceP, gstBp)) : null;
@@ -330,6 +431,7 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
     if (gstBp == null) return setError('GST % is not valid');
     if (canPrice) {
       body.salePricePaise = priceP ?? 0;
+      if (formMk && 'error' in formMk) return setError(formMk.error);
       if (f.price?.trim() && priceP == null) return setError('Selling price is not valid');
       body.maxDiscType = f.discType || null;
       body.maxDiscValue = f.discType ? (f.discType === 'pct' ? parsePercent(f.disc ?? '') : parseRupees(f.disc ?? '')) : null;
@@ -352,6 +454,15 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
       const price = u.price.trim() ? parseRupees(u.price) : null;
       if (u.price.trim() && price == null) return setError(`Price for ${u.unitCode} is not valid`);
       unitBody.push({ unitCode: u.unitCode, factorNum: q % 1000 === 0 ? q / 1000 : q, factorDen: q % 1000 === 0 ? 1 : 1000, forSale: u.forSale, forPurchase: u.forPurchase, ...(canPrice ? { pricePaise: price } : {}) });
+    }
+    const buyUnit = f.buyUnit ?? f.unitCode;
+    if (buyUnit && buyUnit !== f.unitCode) {
+      const q = parseQty(f.perBuy ?? '');
+      if (q == null || q <= 0) return setError(`How many ${f.unitCode} are in 1 ${buyUnit}? Enter a number.`);
+      const i = unitBody.findIndex((u) => u.unitCode === buyUnit);
+      const row = { unitCode: buyUnit, factorNum: q % 1000 === 0 ? q / 1000 : q, factorDen: q % 1000 === 0 ? 1 : 1000, forSale: i >= 0 ? unitBody[i]!.forSale : false, forPurchase: true };
+      if (i >= 0) unitBody[i] = { ...unitBody[i]!, ...row };
+      else unitBody.push(row);
     }
     body.units = unitBody;
     if (!product && f.opening?.trim()) {
@@ -437,22 +548,63 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
             ))}
           </datalist>
         </Field>
-        <Field label="Unit (stock is kept in this unit)">
-          <Select value={f.unitCode ?? 'pcs'} onChange={set('unitCode')}>
-            {(unitsQ.data ?? [{ code: f.unitCode ?? 'pcs', name: f.unitCode ?? 'pcs' }]).map((u) => (
+        <Field label="We buy in">
+          <Select
+            value={f.buyUnit ?? f.unitCode ?? 'pcs'}
+            onChange={(e) => {
+              const v = e.target.value;
+              // selling follows buying until it is changed on its own
+              setF((x) => ({ ...x, buyUnit: v, unitCode: (x.unitCode ?? 'pcs') === (x.buyUnit ?? x.unitCode) ? v : (x.unitCode ?? 'pcs') }));
+            }}
+          >
+            {(unitsQ.data ?? [{ code: f.buyUnit ?? 'pcs', name: f.buyUnit ?? 'pcs' }]).map((u) => (
               <option key={u.code} value={u.code}>
                 {u.code} — {u.name}
               </option>
             ))}
           </Select>
         </Field>
+        <Field label="We sell in" hint="Stock is counted in this unit">
+          <Select value={f.unitCode ?? 'pcs'} onChange={set('unitCode')}>
+            {(unitsQ.data ?? [{ code: f.unitCode ?? 'pcs', name: f.unitCode ?? 'pcs' }]).map((u) => (
+              <option key={u.code} value={u.code}>
+                {u.code} — {u.name}
+                {u.code === (f.buyUnit ?? f.unitCode) ? ' (same as buying)' : ''}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {(f.buyUnit ?? f.unitCode) !== f.unitCode && (
+          <Field
+            label={`How many ${f.unitCode} in 1 ${f.buyUnit}?`}
+            className="sm:col-span-2"
+            hint={
+              f.buyUnit === 'tonne' && f.unitCode === 'rod' && steelMm
+                ? `e.g. 1 tonne of ${steelMm} mm = 100 rods. Standard ≈ ${standardRodsPerTonne(steelMm)} (12 m rods). When a purchase is entered, the real count can be typed instead.`
+                : `e.g. 1 tonne = 100 nos. Purchases in ${f.buyUnit} are turned into ${f.unitCode} by this.`
+            }
+          >
+            <Input className="num" inputMode="decimal" value={f.perBuy ?? ''} onChange={set('perBuy')} />
+          </Field>
+        )}
         <Field label="HSN code">
           <Input value={f.hsn ?? ''} onChange={set('hsn')} inputMode="numeric" />
         </Field>
         <Field label="GST %" hint="18% = 9% CGST + 9% SGST">
           <Input value={f.gst ?? ''} onChange={set('gst')} inputMode="decimal" />
         </Field>
-        <Field label={`Selling price per ${f.unitCode ?? 'unit'} (₹)`} hint={other != null ? `${inclMode ? 'Excl.' : 'Incl.'} GST: ₹${formatPaise(other)}` : undefined}>
+        <Field
+          label={`Selling price per ${f.unitCode ?? 'unit'} (₹)`}
+          hint={
+            formMk && 'error' in formMk
+              ? formMk.error
+              : formMk
+                ? `Cost ${f.price?.trim()} = ₹${formatPaise(priceP!)} ${inclMode ? 'incl.' : 'excl.'} GST${other != null ? ` (${inclMode ? 'excl.' : 'incl.'} ₹${formatPaise(other)})` : ''}`
+                : other != null
+                  ? `${inclMode ? 'Excl.' : 'Incl.'} GST: ₹${formatPaise(other)} · or type +20% for cost + 20%`
+                  : 'Or type +20% for cost + 20%'
+          }
+        >
           <div className="flex gap-2">
             <Input value={f.price ?? ''} onChange={set('price')} inputMode="decimal" disabled={!canPrice} />
             <div role="radiogroup" aria-label="Price includes GST?" className="flex shrink-0 overflow-hidden rounded-[6px] border border-line-2">
@@ -499,9 +651,9 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
         )}
         <div className="flex flex-col gap-2 rounded-[6px] border border-line bg-paper p-3 sm:col-span-2">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <span className="text-[13px] font-bold">Other units</span>
+            <span className="text-[13px] font-bold">More units (optional)</span>
             <span className="text-xs text-ink-3">
-              Stock is kept in <b>{f.unitCode}</b>. Add units you buy or sell in, e.g. tonne for TMT bars.
+              Extra units you also sell or buy in, e.g. coil and metre for wire. Stock is counted in <b>{f.unitCode}</b>.
             </span>
           </div>
           {units.map((u, i) => (
@@ -544,7 +696,7 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
           onChange={(v) => setF((x) => ({ ...x, service: v ? '1' : '0' }))}
         />
         {!product && f.service !== '1' && (
-          <Field label="Opening stock" hint="Saved as an “opening” stock entry">
+          <Field label={`Opening stock (in ${f.unitCode})`} hint="Saved as an “opening” stock entry">
             <Input value={f.opening ?? ''} onChange={set('opening')} inputMode="decimal" />
           </Field>
         )}
@@ -726,4 +878,11 @@ function StockCard({ product, onClose }: { product: ProductRow | null; onClose: 
       </div>
     </Modal>
   );
+}
+
+/** The unit a product is bought in (a buy-only unit), and how many selling units are in one. */
+function buyUnitOf(p: ProductRow): { buyUnit: string; perBuy: string } {
+  const u = p.units.find((x) => x.for_purchase && !x.for_sale);
+  if (!u) return { buyUnit: p.unit_code, perBuy: '' };
+  return { buyUnit: u.unit_code, perBuy: u.factor_den === 1 ? String(u.factor_num) : formatQty(Math.round((u.factor_num * 1000) / u.factor_den)) };
 }

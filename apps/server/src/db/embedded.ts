@@ -19,9 +19,20 @@ export async function startEmbeddedPostgres(opts: { dir: string; port: number; p
   const pidFile = join(opts.dir, 'postmaster.pid');
 
   if (existsSync(pidFile)) {
-    if (await canConnect(url('postgres'))) {
-      console.log('[postgres] already running — reusing it');
-      return { url, stop: async () => {} };
+    // Running (perhaps for another Store Desk window, perhaps just busy): reuse it. Try for ~15 s before deciding.
+    for (let i = 0; i < 5; i++) {
+      if (await canConnect(url('postgres'))) {
+        console.log('[postgres] already running — reusing it');
+        return { url, stop: async () => {} };
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    // Never kill a database that is still alive: another Store Desk may be using it.
+    const pid = readPid(pidFile);
+    if (pid && isRunningPostgres(pid)) {
+      throw new Error(
+        'The Store Desk database is running but not answering. Store Desk may already be open in another window: close the other black window, wait 10 seconds and try again. If it keeps happening, restart the computer.',
+      );
     }
     console.log('[postgres] found a database left over from an unclean stop — clearing it');
     clearLeftovers(pidFile);
@@ -47,6 +58,29 @@ export async function startEmbeddedPostgres(opts: { dir: string; port: number; p
   }
   await withTimeout(pg.start(), 60_000, 'The database did not start within a minute. Restart the computer and try again.');
   return { url, stop: () => pg.stop() };
+}
+
+function readPid(pidFile: string): number | null {
+  try {
+    const pid = Number(readFileSync(pidFile, 'utf8').split(/\r?\n/)[0]);
+    return pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Is this PID a live PostgreSQL process? (A stale pid file may point at a PID now used by something else.) */
+function isRunningPostgres(pid: number): boolean {
+  if (process.platform === 'win32') {
+    const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', `(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).ProcessName`], { encoding: 'utf8', timeout: 15_000 });
+    return /^postgres/i.test((r.stdout ?? '').trim());
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Kill the old postmaster (if its PID is still alive) and any orphaned helpers of OUR PostgreSQL binary. */

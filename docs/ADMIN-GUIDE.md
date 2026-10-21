@@ -39,6 +39,16 @@ For the owner and whoever runs the books. The phase guides have the details; thi
 - **Services** (loading / unloading, transport, cutting…): Inventory → Add product → tick **"This is a service"**, and put its SAC code (loading / unloading is 996749) in the HSN box. Services carry GST but never count as stock, are left out of stock counts and reorder lists, and can't be put on a purchase.
 - The **"Authorised dealers for"** brand logos are at the foot of every bill. Turn them off in Settings → GST & invoices. The logos were taken from each company's own website. For crisp printing and to be safe on brand rules, ask your distributors for their official dealer logo files and give them to the developer.
 
+## Prices from cost
+- In Inventory, click a price and type **+20%**: the price becomes **cost + 20%** before GST (GST is added on the bill). A box shows the result with and without GST; **Enter** saves, **Esc** cancels.
+- Or **drag** one of the chips (+5% … +25%, above the list) onto a product. On a phone or tablet, tap the chip, then tap the product's price.
+- The same works in the product form's price box.
+
+## Buying in one unit, selling in another
+- In the product form, **We buy in** (e.g. tonne) and **We sell in** (e.g. rod). Selling is the same as buying unless you change it.
+- When they differ, fill in **How many rod in 1 tonne?** (e.g. 100). Purchases in tonnes turn into rods by this. On a purchase you can also type the real rod count for that load.
+- Stock is counted in the selling unit. The selling unit can't be changed once the product has stock.
+
 ## Cost prices
 - Cost can be typed with up to **4 decimals** (e.g. ₹57.2034 a kg), in Inventory and in the Excel import. Purchases work out the cost per unit to 4 decimals by themselves.
 - This keeps stock value and profit exact for items bought by the ton and sold by the kg or rod. Bills, GST and totals are always to the paisa (2 decimals).

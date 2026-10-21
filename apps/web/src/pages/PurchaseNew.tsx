@@ -3,8 +3,8 @@ import type { Insights } from './Stock';
 import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { exclFromIncl, formatPaise, formatPercent, formatQty, mulDivRound, parsePercent, parseQty, parseRupees, toBase, formatCost } from '@kph/core';
-import { ApiError, get, post, store } from '../lib/api';
-import { todayIst, uuid } from '../lib/format';
+import { ApiError, get, post, qs, store } from '../lib/api';
+import { fmtDate, todayIst, uuid } from '../lib/format';
 import { preparePage, type PreparedPage } from '../lib/images';
 import { useSession } from '../lib/session';
 import type { ProductRow, SupplierRow } from '../lib/types';
@@ -324,7 +324,9 @@ function Review({
     const p = l.productId ? byId.get(l.productId) : undefined;
     const buyUnits = p ? [p.unit_code, ...p.units.filter((u) => u.for_purchase).map((u) => u.unit_code)] : [];
     const billUnitCode = unitCode(l.billUnit);
-    const chosenUnit = l.unitCode ?? (billUnitCode && buyUnits.includes(billUnitCode) ? billUnitCode : (p?.unit_code ?? null));
+    // default: the unit we buy it in (e.g. tonne for steel sold in rods), else the selling unit
+    const buyingUnit = p?.units.find((u) => u.for_purchase && !u.for_sale)?.unit_code ?? p?.unit_code ?? null;
+    const chosenUnit = l.unitCode ?? (billUnitCode && buyUnits.includes(billUnitCode) ? billUnitCode : buyingUnit);
     const pu = p && chosenUnit && chosenUnit !== p.unit_code ? p.units.find((u) => u.unit_code === chosenUnit) : undefined;
     const converted = qty != null && pu ? toBase(qty, { num: pu.factor_num, den: pu.factor_den }).baseMilli : qty;
     const counted = l.countText?.trim() ? parseQty(l.countText) : null;
@@ -356,10 +358,21 @@ function Review({
   const badLine = rows.findIndex((r) => !r.ok);
   const canSave = !!draft.supplierId && draft.billNo.trim() && /^\d{4}-\d{2}-\d{2}$/.test(draft.billDate) && rows.length > 0 && badLine < 0 && freight != null && Math.abs(diff) <= 1000;
 
-  const save = async () => {
+  const [dupAsk, setDupAsk] = useState<Duplicate | null>(null);
+  const save = async (confirmed = false) => {
     setSaving(true);
     setError(null);
     try {
+      if (!confirmed) {
+        const { duplicate } = await get<{ duplicate: Duplicate | null }>(
+          `/api/purchases/duplicate-check${qs({ supplierId: draft.supplierId ?? undefined, billNo: draft.billNo.trim(), billDate: draft.billDate, totalPaise: billTotal ?? computed, scanId: draft.scanId ?? undefined })}`,
+        );
+        if (duplicate) {
+          setDupAsk(duplicate);
+          return;
+        }
+      }
+      setDupAsk(null);
       const r = await post<{ id: number; number: string; createdProducts: number[] }>('/api/purchases', {
         clientRef: draft.clientRef,
         supplierId: draft.supplierId,
@@ -406,6 +419,42 @@ function Review({
         sub={draft.scanId ? 'Read by the scanner — check every line before saving.' : 'Type the bill as printed. Amounts are before GST.'}
       />
       {draft.duplicateOf && <Notice tone="bad">This bill looks like one already entered as <b>{draft.duplicateOf}</b>. Saving it again would add the stock twice.</Notice>}
+      <Modal
+        open={!!dupAsk}
+        onClose={() => setDupAsk(null)}
+        title="This bill is already entered"
+        footer={
+          dupAsk && (
+            <>
+              <Button variant="ghost" onClick={() => setDupAsk(null)}>
+                Cancel
+              </Button>
+              <a href={`/purchases?open=${dupAsk.id}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-[6px] border border-line-2 bg-white px-4 text-sm font-semibold hover:bg-paper">
+                Open {dupAsk.number}
+              </a>
+              {dupAsk.reason !== 'number' && (
+                <Button variant="danger" busy={saving} onClick={() => void save(true)}>
+                  Yes, add it again
+                </Button>
+              )}
+            </>
+          )
+        }
+      >
+        {dupAsk && (
+          <div className="flex flex-col gap-3 text-sm">
+            <p>
+              {dupAsk.reason === 'photo' ? 'This same photo was already used for' : dupAsk.reason === 'number' ? `Bill no. ${dupAsk.supplier_invoice_no} from this supplier is already entered as` : 'A bill from this supplier with the same date and total is already entered as'}{' '}
+              <b>{dupAsk.number}</b> (bill {dupAsk.supplier_invoice_no}, {fmtDate(dupAsk.supplier_invoice_date)}, ₹{formatPaise(dupAsk.total_paise)}).
+            </p>
+            {dupAsk.reason === 'number' ? (
+              <Notice tone="bad">The same supplier bill number can't be entered twice: the stock and the GST credit would be counted twice. If this really is a different bill, correct the bill number (for example add /2) and save again.</Notice>
+            ) : (
+              <Notice tone="warn">Adding it again will add the stock again. Only do this if it really is a different bill.</Notice>
+            )}
+          </div>
+        )}
+      </Modal>
       {draft.scanNotes && <Notice tone="warn">Scanner note: {draft.scanNotes}</Notice>}
 
       <div className="flex flex-wrap items-start gap-4">
@@ -640,7 +689,7 @@ function Review({
             <Button size="lg" onClick={onDiscard}>
               Discard
             </Button>
-            <Button variant="primary" size="lg" disabled={!canSave} busy={saving} onClick={save} className="font-extrabold tracking-[.04em]">
+            <Button variant="primary" size="lg" disabled={!canSave} busy={saving} onClick={() => void save()} className="font-extrabold tracking-[.04em]">
               SAVE PURCHASE · ADD {formatQty(units)} TO STOCK
             </Button>
           </div>
@@ -869,3 +918,12 @@ function NewSupplier({ open, initial, onClose, onCreated }: { open: boolean; ini
   );
 }
 
+
+interface Duplicate {
+  id: number;
+  number: string;
+  supplier_invoice_no: string;
+  supplier_invoice_date: string;
+  total_paise: number;
+  reason: 'photo' | 'number' | 'similar';
+}

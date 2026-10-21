@@ -92,3 +92,19 @@ describe('calcBill', () => {
     ]);
   });
 });
+
+describe('price from cost + markup', () => {
+  it('reads "+20%" and works out cost + markup (+ GST when the price includes GST)', async () => {
+    const { parseMarkup, priceFromCost } = await import('../src/billing.js');
+    expect(parseMarkup('+20%')).toBe(2000);
+    expect(parseMarkup('12.5 %')).toBe(1250);
+    expect(parseMarkup('+ 5%')).toBe(500);
+    expect(parseMarkup('350')).toBeNull();
+    expect(parseMarkup('-10%')).toBeNull();
+    // cost ₹292.00 + 20% = ₹350.40 excl. GST; with 18% GST included = ₹413.47
+    expect(priceFromCost(2920000, 2000, 1800, false)).toBe(35040);
+    expect(priceFromCost(2920000, 2000, 1800, true)).toBe(41347);
+    // 4-decimal cost: ₹57.2034 + 15% = ₹65.78
+    expect(priceFromCost(572034, 1500, 1800, false)).toBe(6578);
+  });
+});

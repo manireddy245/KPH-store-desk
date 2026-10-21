@@ -75,6 +75,19 @@ describe('entering a purchase', () => {
     expect(byBillDate.map((x) => x.id)).toContain(r.body.id);
   });
 
+  it('duplicate check: same bill number, or same date and total; nothing for a new bill', async () => {
+    const p = await h.product({ qty: 0, cost: 28000 });
+    const no = `DUP/${randomUUID().slice(0, 6)}`;
+    const r = await admin.post('/api/purchases', bill({ supplierInvoiceNo: no, supplierInvoiceDate: '2026-10-03', lines: [{ productId: p, qtyMilli: 10_000, taxablePaise: 300_000, gstRateBp: 1800 }] }));
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const [saved] = await h.app<{ total_paise: number }[]>`select total_paise from purchase_invoices where id = ${r.body.id}`;
+    const check = async (q: string) => (await admin.get(`/api/purchases/duplicate-check?supplierId=${supplierId}&${q}`)).body.duplicate;
+    expect(await check(`billNo=${encodeURIComponent(no.toLowerCase())}`)).toMatchObject({ id: r.body.id, reason: 'number' });
+    // bill number misread, but same supplier, date and total
+    expect(await check(`billNo=DUP-MISREAD&billDate=2026-10-03&totalPaise=${saved!.total_paise}`)).toMatchObject({ id: r.body.id, reason: 'similar' });
+    expect(await check(`billNo=NEW-1&billDate=2026-10-03&totalPaise=${saved!.total_paise + 50_000}`)).toBeNull();
+  });
+
   it('refuses the same supplier bill twice, and stock is not added again', async () => {
     const p = await h.product({ qty: 0 });
     const b = bill({ lines: [{ productId: p, qtyMilli: 5000, taxablePaise: 100000, gstRateBp: 1800 }] });

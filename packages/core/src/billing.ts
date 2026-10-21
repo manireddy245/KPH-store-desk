@@ -174,3 +174,21 @@ export function taxSummaryByHsn(lines: { hsn: string | null; gstRateBp: number; 
 }
 
 export class BillError extends Error {}
+
+/** "+20%", "20%", "+ 12.5 %" → markup in basis points (2000); null if it isn't a markup. */
+export function parseMarkup(input: string): BasisPoints | null {
+  const m = input.trim().match(/^\+?\s*(\d{1,3}(?:\.\d{1,2})?)\s*%$/);
+  if (!m) return null;
+  const bp = Math.round(Number(m[1]) * 100);
+  return bp <= 100000 ? bp : null;
+}
+
+/**
+ * Selling price from cost: cost (excl. GST, 4 decimals) + markup → price excl. GST, rounded to the paisa.
+ * GST goes on top at billing, so the customer pays cost + markup + GST. For a product whose price
+ * is kept including GST, the GST is added here.
+ */
+export function priceFromCost(costCp: number, markupBp: BasisPoints, gstRateBp: BasisPoints, includesTax: boolean): Paise {
+  const excl = mulDivRound(costCp, 10000 + markupBp, 100 * 10000);
+  return includesTax ? inclFromExcl(excl, gstRateBp) : excl;
+}

@@ -290,6 +290,41 @@ async function nextAutoSku(q: Q) {
   return `NEW-${String(r!.n).padStart(5, '0')}`;
 }
 
+/**
+ * Is this supplier bill already entered? Checked three ways, most certain first:
+ *  - the same photo was used for a saved purchase
+ *  - the same supplier bill number from the same supplier (this one can't be saved twice)
+ *  - same supplier, same bill date and the same total (catches a misread bill number)
+ */
+export async function findDuplicatePurchase(
+  q: Q,
+  f: { supplierId?: number | null; billNo?: string | null; billDate?: string | null; totalPaise?: number | null; scanId?: number | null },
+) {
+  type Hit = { id: number; number: string; supplier_invoice_no: string; supplier_invoice_date: string; total_paise: number; at: string };
+  const cols = q`p.id, p.number, p.supplier_invoice_no, p.supplier_invoice_date::text, p.total_paise, p.at`;
+  if (f.scanId) {
+    const [h] = await q<Hit[]>`
+      select ${cols} from purchase_scans s join purchase_invoices p on p.id = s.purchase_id
+      where s.id <> ${f.scanId} and p.status = 'posted'
+        and s.page_hashes && (select page_hashes from purchase_scans where id = ${f.scanId}) limit 1`;
+    if (h) return { ...h, reason: 'photo' as const };
+  }
+  if (f.supplierId && f.billNo?.trim()) {
+    const [h] = await q<Hit[]>`
+      select ${cols} from purchase_invoices p
+      where p.supplier_id = ${f.supplierId} and lower(p.supplier_invoice_no) = ${f.billNo.trim().toLowerCase()} and p.status = 'posted' limit 1`;
+    if (h) return { ...h, reason: 'number' as const };
+  }
+  if (f.supplierId && f.billDate && f.totalPaise != null) {
+    const [h] = await q<Hit[]>`
+      select ${cols} from purchase_invoices p
+      where p.supplier_id = ${f.supplierId} and p.supplier_invoice_date = ${f.billDate}::date and p.status = 'posted'
+        and abs(p.total_paise - ${f.totalPaise}) <= 100 limit 1`;
+    if (h) return { ...h, reason: 'similar' as const };
+  }
+  return null;
+}
+
 export async function listPurchases(q: Q, f: { from?: string; to?: string; supplierId?: number; search?: string }) {
   const search = f.search?.trim() ? `%${f.search.trim().toLowerCase()}%` : null;
   return q`

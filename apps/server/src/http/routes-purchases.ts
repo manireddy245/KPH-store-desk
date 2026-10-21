@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError, requirePerm } from '../services/common.js';
-import { cancelPurchase, createPurchase, getPurchase, listPurchases } from '../services/purchases.js';
+import { cancelPurchase, createPurchase, getPurchase, findDuplicatePurchase, listPurchases } from '../services/purchases.js';
 import { readScanPage, scanBill, type ModelCaller } from '../services/scanner.js';
 import { ctxOf, type Shared } from './app.js';
 
@@ -76,6 +76,14 @@ export async function registerPurchaseRoutes(app: FastifyInstance, { db, live }:
     requirePerm(ctxOf(req), 'stock.adjust');
     const q = z.object({ from: date.optional(), to: date.optional(), supplierId: id.optional(), search: z.string().optional() }).parse(req.query);
     return listPurchases(db.app, q);
+  });
+
+  app.get('/api/purchases/duplicate-check', async (req) => {
+    requirePerm(ctxOf(req), 'stock.adjust');
+    const q = z
+      .object({ supplierId: id.optional(), billNo: z.string().max(60).optional(), billDate: date.optional(), totalPaise: z.coerce.number().int().optional(), scanId: id.optional() })
+      .parse(req.query);
+    return { duplicate: await findDuplicatePurchase(db.app, q) };
   });
 
   app.get('/api/purchases/:id', async (req) => {
