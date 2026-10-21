@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import postgres from 'postgres';
@@ -17,6 +17,7 @@ export async function startEmbeddedPostgres(opts: { dir: string; port: number; p
   mkdirSync(opts.dir, { recursive: true });
   const url = (db: string) => `postgres://postgres:${encodeURIComponent(opts.password)}@127.0.0.1:${opts.port}/${db}`;
   const pidFile = join(opts.dir, 'postmaster.pid');
+  const recent: string[] = [];
 
   if (existsSync(pidFile)) {
     // Running (perhaps for another Store Desk window, perhaps just busy): reuse it. Try for ~15 s before deciding.
@@ -47,7 +48,11 @@ export async function startEmbeddedPostgres(opts: { dir: string; port: number; p
     // UTF-8 is required for Telugu text. Windows would otherwise default to WIN1252.
     initdbFlags: ['--encoding=UTF8', '--locale=C', '--auth=scram-sha-256'],
     postgresFlags: ['-c', 'listen_addresses=127.0.0.1'],
-    onLog: () => {},
+    // keep the last lines PostgreSQL printed, to explain a failed start
+    onLog: (m: string) => {
+      recent.push(...m.split(/\r?\n/).filter((x) => x.trim()));
+      if (recent.length > 20) recent.splice(0, recent.length - 20);
+    },
     onError: (e: unknown) => {
       const s = String(e);
       if (/error|fatal|panic/i.test(s)) console.error('[postgres]', s.trim());
@@ -56,7 +61,13 @@ export async function startEmbeddedPostgres(opts: { dir: string; port: number; p
   if (!existsSync(join(opts.dir, 'PG_VERSION'))) {
     await pg.initialise();
   }
-  await withTimeout(pg.start(), 60_000, 'The database did not start within a minute. Restart the computer and try again.');
+  try {
+    await withTimeout(pg.start(), 60_000, 'The database did not start within a minute. Restart the computer and try again.');
+  } catch (e) {
+    // the library rejects with nothing when PostgreSQL exits: say what PostgreSQL said instead of "unknown error"
+    const said = recent.filter((l) => /FATAL|ERROR|PANIC|HINT|lock file/i.test(l)).slice(-4).join(' | ');
+    throw new Error(e instanceof Error ? e.message : `PostgreSQL stopped while starting${said ? `: ${said}` : ''}`);
+  }
   return { url, stop: () => pg.stop() };
 }
 
@@ -83,20 +94,13 @@ function isRunningPostgres(pid: number): boolean {
   }
 }
 
-/** Kill the old postmaster (if its PID is still alive) and any orphaned helpers of OUR PostgreSQL binary. */
+/**
+ * After an unclean stop (power cut, killed window): clear orphaned helpers of OUR PostgreSQL binary and the
+ * stale lock file. Windows reuses process numbers, so the number in the lock file may now belong to an
+ * unrelated program: that program is never touched, and the lock file is removed so PostgreSQL doesn't
+ * mistake it for a running database.
+ */
 function clearLeftovers(pidFile: string) {
-  try {
-    const pid = Number(readFileSync(pidFile, 'utf8').split(/\r?\n/)[0]);
-    if (pid > 0) {
-      try {
-        process.kill(pid);
-      } catch {
-        /* already gone */
-      }
-    }
-  } catch {
-    /* unreadable pid file */
-  }
   if (process.platform === 'win32') {
     // Helper processes of the bundled PostgreSQL only — never any other PostgreSQL on this PC.
     spawnSync(
@@ -113,6 +117,11 @@ function clearLeftovers(pidFile: string) {
   const until = Date.now() + 1500;
   while (Date.now() < until) {
     /* wait */
+  }
+  try {
+    rmSync(pidFile, { force: true });
+  } catch {
+    /* PostgreSQL will report it if it really can't start */
   }
 }
 
