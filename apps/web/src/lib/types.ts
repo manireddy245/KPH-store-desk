@@ -28,6 +28,7 @@ export interface ProductRow {
   stock_status: 'ok' | 'low' | 'out' | 'service';
   /** A service (loading charges, transport…): no stock. */
   is_service?: boolean;
+  added_at_billing?: boolean;
 }
 
 export interface ProductUnit {
@@ -44,6 +45,13 @@ export interface CustomerRow {
   name: string;
   phone: string | null;
   gstin: string | null;
+  gst_legal_name?: string | null;
+  gst_trade_name?: string | null;
+  gst_type?: string | null;
+  gst_status?: string | null;
+  gst_constitution?: string | null;
+  gst_address?: string | null;
+  gst_checked_at?: string | null;
   state_code: string;
   address: string | null;
   credit_limit_paise: number | null;

@@ -59,6 +59,8 @@ export async function registerAdminRoutes(app: FastifyInstance, { db, live }: Sh
         autoBackupHour: z.number().int().min(0).max(23),
         geminiApiKey: z.string(),
         geminiThinking: z.enum(['minimal', 'low', 'medium', 'high']),
+        gstLookupUrl: z.string().max(300).refine((v) => v === '' || (v.startsWith('https://') && v.includes('{gstin}')), 'The address must start with https:// and contain {gstin}'),
+        gstLookupKey: z.string().max(200),
         geminiModel: z.string().regex(/^[a-z0-9][a-z0-9.-]{2,60}$/, 'Model name looks wrong'),
         purchasePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/),
         creditNotePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/),
@@ -93,7 +95,7 @@ export async function registerAdminRoutes(app: FastifyInstance, { db, live }: Sh
       }
     }
     await setSettings(db.app, b);
-    const logged = { ...b, geminiApiKey: b.geminiApiKey === undefined ? undefined : '(changed)', backupPassphrase: b.backupPassphrase === undefined ? undefined : '(changed)' };
+    const logged = { ...b, geminiApiKey: b.geminiApiKey === undefined ? undefined : '(changed)', backupPassphrase: b.backupPassphrase === undefined ? undefined : '(changed)', gstLookupKey: b.gstLookupKey === undefined ? undefined : '(changed)' };
     await audit(db.app, ctx, 'settings.changed', { details: logged });
     live.broadcast({ type: 'settings.changed' });
     return publicSettings(await getSettings(db.app));

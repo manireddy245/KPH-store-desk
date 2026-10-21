@@ -18,6 +18,7 @@ export interface BillDetails {
   dispatchedThrough?: string;
   destination?: string;
   termsOfDelivery?: string;
+  saleBy?: string;
 }
 
 /** The details as saved on a bill (database column names). */
@@ -33,6 +34,7 @@ export interface BillDetailsRow {
   dispatched_through: string | null;
   destination: string | null;
   terms_of_delivery: string | null;
+  sale_by?: string | null;
 }
 
 export const detailsFromRow = (r: BillDetailsRow | null | undefined): BillDetails => ({
@@ -47,6 +49,7 @@ export const detailsFromRow = (r: BillDetailsRow | null | undefined): BillDetail
   dispatchedThrough: r?.dispatched_through ?? '',
   destination: r?.destination ?? '',
   termsOfDelivery: r?.terms_of_delivery ?? '',
+  saleBy: r?.sale_by ?? '',
 });
 
 /** Only what was filled in, trimmed (PAN in capitals). */
@@ -60,7 +63,8 @@ export function cleanDetails(d: BillDetails | undefined): BillDetails | undefine
   return Object.keys(out).length ? out : undefined;
 }
 
-export const filledCount = (d: BillDetails | undefined) => Object.values(d ?? {}).filter((v) => v?.trim()).length;
+/** Filled delivery boxes (Sale by has its own box on the billing screen, so it isn't counted). */
+export const filledCount = (d: BillDetails | undefined) => Object.entries(d ?? {}).filter(([k, v]) => k !== 'saleBy' && v?.trim()).length;
 
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
@@ -170,6 +174,9 @@ export function BillDetailsModal({ invoiceId, number, initial, open, onClose, on
       }
     >
       <div className="flex flex-col gap-3">
+        <Field label="Sale by" hint="Printed on the bill under the shop address">
+          <Input value={v.saleBy ?? ''} onChange={(e) => setV({ ...v, saleBy: e.target.value })} />
+        </Field>
         <BillDetailsFields value={v} onChange={setV} />
         {error && <Notice tone="bad">{error}</Notice>}
       </div>

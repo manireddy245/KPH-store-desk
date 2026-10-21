@@ -8,6 +8,7 @@ import { useSession } from '../lib/session';
 import type { CustomerRow } from '../lib/types';
 import { Page } from '../components/Layout';
 import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, cx, useDebounced, useToast } from '../components/ui';
+import { GstDetailsFields, gstBody, gstFromRow, type GstInfo } from '../components/GstDetails';
 import { InvoiceModal } from './Sales';
 import { DuesPanel, WhatsAppButton } from '../components/KhataBits';
 
@@ -105,6 +106,7 @@ function CustomerForm({ open, customer, onClose }: { open: boolean; customer: Cu
   const qc = useQueryClient();
   const toast = useToast();
   const [f, setF] = useState<Record<string, string>>({});
+  const [gst, setGst] = useState<GstInfo>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const admin = can('settings.manage');
@@ -124,11 +126,12 @@ function CustomerForm({ open, customer, onClose }: { open: boolean; customer: Cu
       holdNote: customer?.hold_note ?? '',
       lang: customer?.language ?? '',
     });
+    setGst(gstFromRow(customer));
   }, [open, customer]);
   const set = (k: string) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
   const submit = async () => {
     setError(null);
-    const body: Record<string, unknown> = { name: f.name, phone: f.phone || null, gstin: f.gstin || null, address: f.address || null, notes: f.notes || null, language: f.lang || null };
+    const body: Record<string, unknown> = { name: f.name, phone: f.phone || null, gstin: f.gstin || null, address: f.address || null, notes: f.notes || null, language: f.lang || null, gst: gstBody(f.gstin ? gst : {}) };
     if (customer) {
       body.duesOnHold = f.hold === '1';
       body.holdNote = f.holdNote || null;
@@ -185,12 +188,18 @@ function CustomerForm({ open, customer, onClose }: { open: boolean; customer: Cu
         <Field label="Phone">
           <Input value={f.phone ?? ''} onChange={set('phone')} inputMode="tel" />
         </Field>
-        <Field label="GSTIN (for business customers)">
-          <Input value={f.gstin ?? ''} onChange={set('gstin')} />
-        </Field>
         <Field label="Area / address" className="sm:col-span-2">
           <Input value={f.address ?? ''} onChange={set('address')} />
         </Field>
+        <div className="sm:col-span-2">
+          <GstDetailsFields
+            gstin={f.gstin ?? ''}
+            onGstin={(v) => setF((x) => ({ ...x, gstin: v }))}
+            gst={gst}
+            onGst={setGst}
+            onFound={(g) => setF((x) => ({ ...x, name: x.name?.trim() ? x.name : (g.tradeName || g.legalName || ''), address: x.address?.trim() ? x.address : (g.address ?? '') }))}
+          />
+        </div>
         {admin && (
           <Field label="Credit limit (₹)" hint="Blank = no limit set">
             <Input value={f.limit ?? ''} onChange={set('limit')} inputMode="decimal" />

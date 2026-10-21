@@ -61,12 +61,22 @@ export async function startEmbeddedPostgres(opts: { dir: string; port: number; p
   if (!existsSync(join(opts.dir, 'PG_VERSION'))) {
     await pg.initialise();
   }
-  try {
-    await withTimeout(pg.start(), 60_000, 'The database did not start within a minute. Restart the computer and try again.');
-  } catch (e) {
-    // the library rejects with nothing when PostgreSQL exits: say what PostgreSQL said instead of "unknown error"
-    const said = recent.filter((l) => /FATAL|ERROR|PANIC|HINT|lock file/i.test(l)).slice(-4).join(' | ');
-    throw new Error(e instanceof Error ? e.message : `PostgreSQL stopped while starting${said ? `: ${said}` : ''}`);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await withTimeout(pg.start(), 60_000, 'The database did not start within a minute. Restart the computer and try again.');
+      break;
+    } catch (e) {
+      // the library rejects with nothing when PostgreSQL exits: say what PostgreSQL said instead of "unknown error"
+      const said = recent.filter((l) => /FATAL|ERROR|PANIC|HINT|lock file/i.test(l)).slice(-4).join(' | ');
+      // helpers left behind by an earlier crash still hold the shared memory: clear them and try once more
+      if (attempt === 1 && /shared memory block is still in use/i.test(said)) {
+        console.log('[postgres] old database helpers are still holding memory — clearing them and trying again');
+        clearLeftovers(pidFile);
+        recent.length = 0;
+        continue;
+      }
+      throw new Error(e instanceof Error ? e.message : `PostgreSQL stopped while starting${said ? `: ${said}` : ''}`);
+    }
   }
   return { url, stop: () => pg.stop() };
 }
@@ -102,15 +112,17 @@ function isRunningPostgres(pid: number): boolean {
  */
 function clearLeftovers(pidFile: string) {
   if (process.platform === 'win32') {
-    // Orphaned helpers of THIS database only (their command line names this data folder) —
-    // never another Store Desk's database, nor any other PostgreSQL on this PC.
+    // Helpers of THIS database (their command line names this data folder), plus orphaned Store Desk
+    // helpers whose main database process is gone (they don't name the folder, but keep holding the
+    // shared memory: "pre-existing shared memory block is still in use"). A helper of a running
+    // database (its parent still alive) is never touched, nor any other PostgreSQL on this PC.
     const dataDir = dirname(pidFile).replace(/\\/g, '/').replace(/'/g, "''");
     spawnSync(
       'powershell.exe',
       [
         '-NoProfile',
         '-Command',
-        `Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $_.CommandLine -like '*@embedded-postgres*' -and ($_.CommandLine -replace '\\\\','/') -like '*${dataDir}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+        `Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $_.CommandLine -like '*@embedded-postgres*' -and ((($_.CommandLine -replace '\\\\','/') -like '*${dataDir}*') -or ($_.CommandLine -like '*--fork*' -and -not (Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue))) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
       ],
       { stdio: 'ignore', timeout: 20_000 },
     );

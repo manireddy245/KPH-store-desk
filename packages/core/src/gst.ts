@@ -31,3 +31,28 @@ export const stateFromGstin = (g: string | null | undefined) => (g && /^\d{2}/.t
 
 /** GST requires the recipient's name, address and state on B2C bills of ₹50,000 or more. */
 export const B2C_DETAILS_THRESHOLD_PAISE = 5_000_000;
+
+/** Kind of taxpayer, from the 4th letter of the PAN inside a GSTIN. */
+const PAN_HOLDER: Record<string, string> = {
+  P: 'Individual / proprietor',
+  C: 'Company',
+  F: 'Firm / LLP',
+  H: 'HUF',
+  A: 'Association of persons',
+  B: 'Body of individuals',
+  T: 'Trust',
+  L: 'Local authority',
+  J: 'Artificial juridical person',
+  G: 'Government',
+};
+
+/**
+ * What a GSTIN itself tells us, without going online: state, PAN and kind of business.
+ * (Legal name, trade name, Regular / Composition and status need the GST lookup.)
+ */
+export function decodeGstin(input: string | null | undefined) {
+  const g = (input ?? '').trim().toUpperCase();
+  if (!isValidGstin(g)) return null;
+  const pan = g.slice(2, 12);
+  return { gstin: g, stateCode: g.slice(0, 2), stateName: stateName(g.slice(0, 2)), pan, holderType: PAN_HOLDER[pan[3]!] ?? 'Other', entityNo: g[12]! };
+}

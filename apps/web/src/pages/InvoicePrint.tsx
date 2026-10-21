@@ -14,35 +14,21 @@ import { Button, LogoMark, Spinner, cx } from '../components/ui';
  * ?copies=3 prints Original / Duplicate / Triplicate; ?auto=1 opens the print dialog.
  */
 
-type Labels = 'en' | 'te-en';
-const T: Record<string, string> = {
-  'TAX INVOICE': 'పన్ను బిల్లు',
-  'CREDIT NOTE': 'క్రెడిట్ నోట్',
-  'Bill to': 'కొనుగోలుదారు',
-  'Ship to': 'సరుకు పంపే చోటు',
-  Item: 'వస్తువు',
-  Qty: 'పరిమాణం',
-  Rate: 'ధర',
-  Amount: 'మొత్తం',
-  'Amount in words': 'అక్షరాలలో',
-  'Authorised signatory': 'అధీకృత సంతకం',
-  Terms: 'నిబంధనలు',
-};
 const COPIES = ['Original for recipient', 'Duplicate for transporter', 'Triplicate for supplier'];
 
 /** Brands the shop deals in, shown at the foot of the bill. Logos come from each company's own website. */
 type Brand =
   | { name: string; src: string; h: number; mono?: boolean }
   /** Logo files with white space around the artwork: show only the artwork (box), at the image size and offset given. */
-  | { name: string; src: string; crop: { w: number; h: number; imgW: number; imgH: number; x: number; y: number } }
+  | { name: string; src: string; crop: { w: number; h: number; imgW: number; imgH: number; x: number; y: number }; caption?: string }
   | { name: string; word: string; sub: string };
 const BRANDS: Brand[] = [
   // UltraTech and Birla White (square marks) both 36px tall; Asian Paints (a wide wordmark) as wide as its space allows
-  { name: 'UltraTech Cement', src: '/brands/ultratech.jpeg', crop: { w: 37, h: 36, imgW: 52, imgH: 43.7, x: 7.5, y: 3.8 } },
+  { name: 'UltraTech Cement', src: '/brands/ultratech.jpeg', crop: { w: 37, h: 36, imgW: 52, imgH: 43.7, x: 7.5, y: 3.8 }, caption: 'CEMENT' },
+  { name: 'JSW Steel', src: '/brands/jsw.svg', h: 28 },
   { name: 'Asian Paints', src: '/brands/asianpaints.png', crop: { w: 126, h: 25, imgW: 126, imgH: 46.7, x: 0, y: 14.5 } },
   { name: 'Birla Opus', src: '/brands/birlaopus.svg', h: 30 },
   { name: 'Birla White', src: '/brands/birlawhite.svg', crop: { w: 39.5, h: 36, imgW: 59.2, imgH: 59.2, x: 11.3, y: 11.3 } },
-  { name: 'JSW Steel', src: '/brands/jsw.svg', h: 28 },
   { name: 'Legrand', src: '/brands/legrand.png', h: 20, mono: true },
   { name: 'Ultra Volt', word: 'ULTRA VOLT', sub: 'WIRES & CABLES' },
   { name: 'Birla Pivot', src: '/brands/birlapivot.webp', h: 30 },
@@ -86,6 +72,8 @@ interface DocLine {
   qtyMilli: number;
   unit: string;
   rate: string | null;
+  /** rate typed including GST (the Rate column heading gets a star) */
+  incl?: boolean;
   disc: string;
   taxable: number;
   gst: number;
@@ -118,6 +106,8 @@ interface Doc {
   total: number;
   discount: number;
   footer: string;
+  /** Salesperson typed at billing, printed under the shop address. */
+  saleBy: string | null;
   store: InvoiceFull['store'];
 }
 
@@ -157,7 +147,8 @@ function fromInvoice(d: InvoiceFull): Doc {
       service: !!l.is_service || !!l.hsn?.startsWith('99'),
       qtyMilli: l.qty_milli,
       unit: l.unit_code,
-      rate: `${formatPaise(l.rate_paise)}${l.rate_mode === 'incl' ? '*' : ''}`,
+      rate: formatPaise(l.rate_paise),
+      incl: l.rate_mode === 'incl',
       disc: l.discount_bp ? `${formatPercent(l.discount_bp)}%` : '—',
       taxable: l.taxable_paise,
       gst: l.gst_rate_bp,
@@ -174,6 +165,7 @@ function fromInvoice(d: InvoiceFull): Doc {
     total: d.total_paise,
     discount: d.discount_paise,
     footer: `Billed by ${d.user_name} · ${d.device_name ?? '—'}`,
+    saleBy: x?.sale_by ?? null,
     store: d.store,
   };
 }
@@ -220,6 +212,7 @@ function fromCreditNote(d: CreditNoteFull): Doc {
     total: d.total_paise,
     discount: 0,
     footer: `Issued by ${d.user_name} · ${d.device_name ?? '—'}`,
+    saleBy: null,
     store: d.store,
   };
 }
@@ -290,18 +283,11 @@ function totalQuantity(lines: DocLine[]) {
 const MUTED = 'text-[#6b675f]';
 
 function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
-  const labels: Labels = d.store.labels ?? 'en';
-  const L = (en: string): ReactNode =>
-    labels === 'te-en' && T[en] ? (
-      <>
-        {en} <span className="telugu font-normal text-ink-3">/ {T[en]}</span>
-      </>
-    ) : (
-      en
-    );
+  // the printed bill is English only (owner's choice: more professional)
+  const L = (en: string): ReactNode => en;
   const nameParts = d.store.name.match(/^(\S+)\s+(.*)$/);
   const inter = d.supply === 'inter';
-  const hasIncl = d.lines.some((l) => l.rate?.endsWith('*'));
+  const hasIncl = d.lines.some((l) => l.incl);
   const tax = d.cgst + d.sgst + d.igst;
   const qty = totalQuantity(d.lines);
   const isInvoice = d.kind === 'invoice';
@@ -333,13 +319,18 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
             {d.store.address}
             <br />
             {d.store.phone && <>Phone {d.store.phone} · </>}GSTIN <b className="text-ink">{d.store.gstin || '—'}</b> · State code {d.store.stateCode}
+            {d.saleBy && (
+              <>
+                <br />
+                Sale by <b className="text-ink">{d.saleBy}</b>
+              </>
+            )}
           </div>
         </div>
         <div className="flex flex-col items-end gap-[3px] text-right">
           <span className="text-[24px] font-extrabold leading-none tracking-[.05em]" style={{ fontStretch: '75%' }}>
             {d.title}
           </span>
-          {labels === 'te-en' && T[d.title] && <span className="telugu text-[11px] font-semibold text-brick">{T[d.title]}</span>}
           <span className={cx('text-[12px]', MUTED)}>{copyLabel}</span>
           <span className="mt-2 text-[15px] font-bold">{d.number}</span>
           <span className="text-[12px] text-ink-2">{fmtDateTime(d.at)}</span>
@@ -415,6 +406,7 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
             </th>
             <th rowSpan={2} className={cx(th, 'border-b-[1.5px] border-ink text-right')}>
               {L('Rate')}
+              {hasIncl && '*'}
             </th>
             {isInvoice && (
               <th rowSpan={2} className={cx(th, 'border-b-[1.5px] border-ink text-right')}>
@@ -515,7 +507,6 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
           </tr>
         </tfoot>
       </table>
-      {hasIncl && <div className={cx('-mt-1.5 text-[10px]', MUTED)}>* rate includes GST</div>}
       <div className={cx('text-center text-[10px] font-semibold tracking-[.24em]', MUTED)}>— END OF LIST —</div>
 
       {/* words + totals: at the bottom of the page, just above the signature */}
@@ -567,7 +558,7 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
               <b className="text-ink">{L('Terms')}</b> · {d.store.terms}
             </>
           )}
-          <div className={cx('mt-1', MUTED)}>{d.footer} · Computer-generated {isInvoice ? 'invoice' : 'document'}</div>
+          <div className={cx('mt-1', MUTED)}>Computer-generated {isInvoice ? 'invoice' : 'document'}</div>
         </div>
         <div className="flex w-[240px] flex-col">
           <span>For</span>
@@ -586,8 +577,11 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
           <div className="grid grid-cols-5 items-center justify-items-center gap-x-[18px] gap-y-2">
             {BRANDS.map((b) =>
               'crop' in b ? (
-                <div key={b.name} style={{ width: b.crop.w, height: b.crop.h, overflow: 'hidden' }}>
-                  <img src={b.src} alt={b.name} style={{ width: b.crop.imgW, height: b.crop.imgH, maxWidth: 'none', marginLeft: -b.crop.x, marginTop: -b.crop.y }} />
+                <div key={b.name} className="flex flex-col items-center">
+                  <div style={{ width: b.crop.w, height: b.crop.h, overflow: 'hidden' }}>
+                    <img src={b.src} alt={b.name} style={{ width: b.crop.imgW, height: b.crop.imgH, maxWidth: 'none', marginLeft: -b.crop.x, marginTop: -b.crop.y }} />
+                  </div>
+                  {b.caption && <span className="mt-[2px] text-[8px] font-bold tracking-[.22em] text-ink-2">{b.caption}</span>}
                 </div>
               ) : 'src' in b ? (
                 <img key={b.name} src={b.src} alt={b.name} style={{ height: b.h, width: 'auto', maxWidth: 120, filter: b.mono ? 'brightness(0)' : undefined }} />

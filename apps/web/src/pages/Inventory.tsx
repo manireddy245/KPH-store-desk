@@ -188,14 +188,16 @@ export function Inventory() {
             >
               <td>
                 <div className="font-bold">
-                  {p.name} {!p.active && <Badge>Inactive</Badge>}
+                  {p.name} {!p.active && <Badge>Inactive</Badge>} {p.added_at_billing && <Badge tone="warn">Added at billing — check HSN</Badge>}
                 </div>
                 <div className="text-xs text-ink-3">
                   {p.sku}
                   {p.brand_name && ` · ${p.brand_name}`}
                 </div>
               </td>
-              <td className="text-ink-2">{p.category_name ?? '—'}</td>
+              <td className="text-ink-2">
+                {can('products.manage') ? <InlineCategory p={p} categories={cats.data ?? []} /> : (p.category_name ?? '—')}
+              </td>
               <td className="num text-right">
                 {p.is_service ? (
                   <span className="text-[13px] font-semibold text-ink-3">Service</span>
@@ -346,6 +348,40 @@ function InlinePrice({ p, editable, preset, armed, onArmedUse }: { p: ProductRow
         </span>
       )}
     </span>
+  );
+}
+
+/** Category straight from the list: pick one and it is saved. */
+function InlineCategory({ p, categories }: { p: ProductRow; categories: Category[] }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  return (
+    <select
+      aria-label={`Category of ${p.name}`}
+      value={p.category_id ?? ''}
+      disabled={busy}
+      onClick={(e) => e.stopPropagation()}
+      onChange={async (e) => {
+        setBusy(true);
+        try {
+          await patch(`/api/products/${p.id}`, { categoryId: e.target.value ? Number(e.target.value) : null });
+          await qc.invalidateQueries({ queryKey: ['products'] });
+        } catch (err) {
+          toast({ tone: 'bad', text: err instanceof ApiError ? err.message : 'Could not change the category' });
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className={cx('h-8 max-w-[170px] rounded-[4px] border bg-white px-1.5 text-[13px]', p.category_id ? 'border-line' : 'border-warn text-warn-ink')}
+    >
+      <option value="">— Choose —</option>
+      {categories.map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.name}
+        </option>
+      ))}
+    </select>
   );
 }
 

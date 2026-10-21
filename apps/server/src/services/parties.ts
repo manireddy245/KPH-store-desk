@@ -20,6 +20,21 @@ export interface CustomerInput {
   active?: boolean;
   /** Only when creating: amount they already owe us (negative = advance). */
   openingBalancePaise?: number;
+  /** GST details, kept apart from the contact details (from the GST lookup, or typed). */
+  gst?: { legalName?: string | null; tradeName?: string | null; type?: string | null; status?: string | null; constitution?: string | null; address?: string | null; checked?: boolean };
+}
+
+/** GST detail columns from the input (only those given). */
+function gstColumns(g: CustomerInput['gst']) {
+  if (!g) return {};
+  const out: Record<string, unknown> = {};
+  const map = { legalName: 'gst_legal_name', tradeName: 'gst_trade_name', type: 'gst_type', status: 'gst_status', constitution: 'gst_constitution', address: 'gst_address' } as const;
+  for (const [k, col] of Object.entries(map)) {
+    const v = g[k as keyof typeof map];
+    if (v !== undefined) out[col] = clean(v);
+  }
+  if (g.checked) out.gst_checked_at = new Date();
+  return out;
 }
 
 const GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
@@ -36,7 +51,8 @@ export async function listCustomers(q: Q, f: { search?: string; withBalanceOnly?
   const search = f.search?.trim() ? `%${f.search.trim().toLowerCase()}%` : null;
   return q`
     select * from (
-      select c.id, c.name, c.phone, c.gstin, c.address, c.state_code, c.credit_limit_paise, c.credit_days, c.language, c.dues_on_hold, c.hold_note, c.notes, c.active, c.is_sample,
+      select c.id, c.name, c.phone, c.gstin, c.address, c.state_code,
+             c.gst_legal_name, c.gst_trade_name, c.gst_type, c.gst_status, c.gst_constitution, c.gst_address, c.gst_checked_at, c.credit_limit_paise, c.credit_days, c.language, c.dues_on_hold, c.hold_note, c.notes, c.active, c.is_sample,
              c.created_at, c.ledger_id,
              l.opening_dr_paise + coalesce(vl.bal, 0) as balance_paise,
              coalesce(si.total, 0) as total_purchases_paise,
@@ -74,6 +90,8 @@ export async function createCustomer(sql: Sql, ctx: Ctx, input: CustomerInput & 
               ${input.language ?? null}, ${clean(input.notes)}, ${opts.isSample ?? false})
       returning id`;
     const id = c!.id;
+    const gst = gstColumns(input.gst);
+    if (Object.keys(gst).length) await tx`update customers set ${tx(gst)} where id = ${id}`;
     const ledgerId = await createPartyLedger(tx, 'customer', id, input.name.trim(), input.openingBalancePaise ?? 0);
     await tx`update customers set ledger_id = ${ledgerId} where id = ${id}`;
     await audit(tx, ctx, 'customer.created', { entity: 'customer', entityId: id, details: { name: input.name, phone: input.phone, openingBalancePaise: input.openingBalancePaise ?? 0 } });
@@ -103,6 +121,7 @@ export async function updateCustomer(sql: Sql, ctx: Ctx, id: number, input: Cust
   if (input.holdNote !== undefined) set.hold_note = clean(input.holdNote);
   if (input.notes !== undefined) set.notes = clean(input.notes);
   if (input.active !== undefined) set.active = input.active;
+  Object.assign(set, gstColumns(input.gst));
   if (!Object.keys(set).length) return { id };
   return sql.begin(async (tx) => {
     const [c] = await tx<{ ledger_id: number }[]>`update customers set ${tx(set)} where id = ${id} returning ledger_id`;

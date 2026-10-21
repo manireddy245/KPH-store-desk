@@ -44,16 +44,15 @@ describe('saving a bill', () => {
     expect(a).toMatchObject({ user_id: h.users.counter.id, device_id: h.deviceId });
   });
 
-  it('blocks a bill when stock is short, and does not use up an invoice number', async () => {
+  it('selling more than the records show adds the missing stock first (with a note), then sells it', async () => {
     const p = await h.product({ qty: 2 });
-    const before = await h.app<{ next_seq: number }[]>`select next_seq from doc_sequences where doc_type = 'sales'`;
     const r = await counter.post('/api/invoices', { paymentMode: 'cash', lines: [{ productId: p, qtyMilli: 3000, discountBp: 0 }] });
-    expect(r.status).toBe(409);
-    expect(r.body.code).toBe('INSUFFICIENT_STOCK');
-    expect(r.body.message).toMatch(/need 3, only 2/);
-    const after = await h.app<{ next_seq: number }[]>`select next_seq from doc_sequences where doc_type = 'sales'`;
-    expect(after).toEqual(before);
-    expect(await h.stockOf(p)).toBe(2000);
+    expect(r.status).toBe(200);
+    expect(r.body.stockAdded).toEqual([expect.objectContaining({ productId: p, addMilli: 1000 })]);
+    expect(await h.stockOf(p)).toBe(0);
+    const [m] = await h.app<{ kind: string; qty_milli: number; reason: string }[]>`
+      select kind, qty_milli, reason from stock_movements where product_id = ${p} and kind = 'adjustment'`;
+    expect(m).toMatchObject({ qty_milli: 1000, reason: `Not in stock records — added when billing ${r.body.number}` });
   });
 
   it('counts the same product on two lines together for the stock check', async () => {
@@ -65,7 +64,8 @@ describe('saving a bill', () => {
         { productId: p, qtyMilli: 3000, discountBp: 0 },
       ],
     });
-    expect(r.body.code).toBe('INSUFFICIENT_STOCK');
+    expect(r.body.stockAdded).toEqual([expect.objectContaining({ productId: p, addMilli: 1000 })]);
+    expect(await h.stockOf(p)).toBe(0);
   });
 
   it('does not save the same bill twice when the button is pressed twice', async () => {

@@ -49,6 +49,7 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
             dispatchedThrough: z.string().max(80).nullable().optional(),
             destination: z.string().max(80).nullable().optional(),
             termsOfDelivery: z.string().max(120).nullable().optional(),
+            saleBy: z.string().max(60).nullable().optional(),
           })
           .optional(),
         lines: z
@@ -104,6 +105,7 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
             dispatchedThrough: z.string().max(80).nullable().optional(),
             destination: z.string().max(80).nullable().optional(),
             termsOfDelivery: z.string().max(120).nullable().optional(),
+            saleBy: z.string().max(60).nullable().optional(),
            }).parse(req.body);
     return saveInvoiceDetails(db.app, ctxOf(req), z.object({ id }).parse(req.params).id, b);
   });

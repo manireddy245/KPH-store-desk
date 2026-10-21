@@ -137,7 +137,7 @@ export async function listProducts(
                         'for_sale', u.for_sale, 'for_purchase', u.for_purchase, 'price_paise', u.price_paise) order by u.factor_num::numeric / u.factor_den)
                        from product_units u where u.product_id = p.id), '[]'::json) as units,
              coalesce(sb.qty_milli, 0) as qty_milli,
-             p.is_service,
+             p.is_service, p.added_at_billing,
              case when p.is_service then 'service'
                   when coalesce(sb.qty_milli, 0) <= 0 then 'out'
                   when coalesce(sb.qty_milli, 0) <= coalesce(p.reorder_level_milli, ${s.lowStockThresholdMilli}) then 'low'
@@ -192,6 +192,30 @@ export async function createProduct(sql: Sql, ctx: Ctx, input: ProductInput & { 
   } catch (e) {
     friendlyDbError(e);
   }
+}
+
+/**
+ * A new item made at the billing counter (not in the product list yet): name, unit and GST only, no price —
+ * the rate is typed on the bill. Marked "added at billing" so admin can check its HSN and details later.
+ */
+export async function quickProduct(sql: Sql, ctx: Ctx, input: { name: string; unitCode: string; gstRateBp: number; hsn?: string | null }) {
+  requirePerm(ctx, 'billing.create', 'Only billing staff can add an item at the counter');
+  const name = input.name.trim();
+  if (name.length < 2) throw new AppError(400, 'BAD_NAME', 'Item name is too short');
+  if (input.gstRateBp < 0 || input.gstRateBp > 10000) throw new AppError(400, 'BAD_GST', 'GST rate is not valid');
+  const hsn = input.hsn?.replace(/\s/g, '') || null;
+  if (hsn && !/^\d{4,8}$/.test(hsn)) throw new AppError(400, 'BAD_HSN', 'HSN should be 4 to 8 digits (or leave it blank)');
+  return sql.begin(async (tx) => {
+    const [same] = await tx<{ id: number }[]>`select id from products where lower(name) = lower(${name}) and active limit 1`;
+    if (same) return { id: same.id, existing: true };
+    const [n] = await tx<{ n: number }[]>`select count(*)::int + 1 as n from products where added_at_billing`;
+    const [p] = await tx<{ id: number }[]>`
+      insert into products (sku, name, unit_code, hsn, gst_rate_bp, sale_price_paise, added_at_billing)
+      values (${`NEW-${String(n!.n).padStart(4, '0')}-${Date.now().toString(36).slice(-4).toUpperCase()}`}, ${name}, ${input.unitCode}, ${hsn}, ${input.gstRateBp}, 0, true)
+      returning id`;
+    await audit(tx, ctx, 'product.added_at_billing', { entity: 'product', entityId: p!.id, details: { name, unit: input.unitCode, gstRateBp: input.gstRateBp, hsn } });
+    return { id: p!.id, existing: false };
+  });
 }
 
 export async function updateProduct(sql: Sql, ctx: Ctx, id: number, input: ProductInput) {

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requirePerm } from '../services/common.js';
+import { lookupGstin } from '../services/gstlookup.js';
 import { createCustomer, createSupplier, customerStatement, listCustomers, listSuppliers, updateCustomer, updateSupplier } from '../services/parties.js';
 import {
   adjustStock,
@@ -13,6 +14,7 @@ import {
   reconcileStock,
   saveCategory,
   stockCard,
+  quickProduct,
   updateProduct,
 } from '../services/products.js';
 import { ctxOf, type Shared } from './app.js';
@@ -62,6 +64,17 @@ const customerBody = z.object({
   notes: z.string().nullable().optional(),
   active: z.boolean().optional(),
   openingBalancePaise: z.number().int().optional(),
+  gst: z
+    .object({
+      legalName: z.string().max(200).nullable().optional(),
+      tradeName: z.string().max(200).nullable().optional(),
+      type: z.string().max(40).nullable().optional(),
+      status: z.string().max(40).nullable().optional(),
+      constitution: z.string().max(80).nullable().optional(),
+      address: z.string().max(400).nullable().optional(),
+      checked: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 const supplierBody = z.object({
@@ -85,6 +98,13 @@ export async function registerCatalogRoutes(app: FastifyInstance, { db, live }: 
   });
 
   app.get('/api/products/:id', async (req) => getProduct(db.app, ctxOf(req), z.object({ id }).parse(req.params).id));
+
+  app.post('/api/products/quick', async (req) => {
+    const b = z.object({ name: z.string().min(2).max(150), unitCode: z.string().min(1), gstRateBp: z.number().int(), hsn: z.string().max(12).nullable().optional() }).parse(req.body);
+    const r = await quickProduct(db.app, ctxOf(req), b);
+    live.broadcast({ type: 'products.changed' });
+    return r;
+  });
 
   app.post('/api/products', async (req) => {
     const b = productBody.extend({ sku: z.string().min(1), name: z.string().min(2), unitCode: z.string().min(1) }).parse(req.body);
@@ -141,6 +161,9 @@ export async function registerCatalogRoutes(app: FastifyInstance, { db, live }: 
   app.get('/api/units', async () => db.app`select code, name from units order by code`);
 
   // ---------------------------------------------------------------- customers
+  // what a GSTIN tells (offline) + the GST lookup service's details when one is set up
+  app.get('/api/gstin/:gstin', async (req) => lookupGstin(db.app, ctxOf(req), z.object({ gstin: z.string().max(20) }).parse(req.params).gstin));
+
   app.get('/api/customers', async (req) => {
     const q = z.object({ search: z.string().optional(), withBalanceOnly: z.coerce.boolean().optional(), includeInactive: z.coerce.boolean().optional() }).parse(req.query);
     return listCustomers(db.app, q);

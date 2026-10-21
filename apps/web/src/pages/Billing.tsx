@@ -31,7 +31,8 @@ import type { AssistantBillCard, CustomerRow, ProductRow } from '../lib/types';
 import { PartnerPicker, type PartnerPick } from '../components/PartnerBits';
 import { useT } from '../lib/i18n';
 import { BillDetailsSection, cleanDetails, type BillDetails } from '../components/BillDetails';
-import { Button, Field, Input, Kbd, Modal, Notice, cx, useDebounced, useToast } from '../components/ui';
+import { GstDetailsFields, gstBody, type GstInfo } from '../components/GstDetails';
+import { Button, Field, Input, Kbd, Modal, Notice, Select, cx, useDebounced, useToast } from '../components/ui';
 
 type Mode = 'cash' | 'upi' | 'card' | 'credit';
 
@@ -223,7 +224,7 @@ export function Billing() {
   const gstinNoDetails = !!effGstin && !draft.customer && !(draft.walkinName.trim() && draft.walkinAddress?.trim());
   const bigNoDetails =
     !effGstin && totals.totalPaise >= B2C_DETAILS_THRESHOLD_PAISE && !(draft.customer ? draft.customer.address : draft.walkinName.trim() && draft.walkinAddress?.trim());
-  const canSave = rows.length > 0 && blockedLine < 0 && invalidLine < 0 && shortLine < 0 && !creditProblem && !b2bNoAddress && !bigNoDetails && !gstinBad && !gstinNoDetails;
+  const canSave = rows.length > 0 && blockedLine < 0 && invalidLine < 0 && !creditProblem && !b2bNoAddress && !bigNoDetails && !gstinBad && !gstinNoDetails;
 
   // ------------------------------------------------------------ search
   const searchRef = useRef<HTMLInputElement>(null);
@@ -269,6 +270,14 @@ export function Billing() {
         ? { ...d, lines: [...d.lines, { key: uuid(), productId: shipProduct.id, qtyText: '1', discText: '', rateText: '', unitCode: null, mode: d.billMode ?? boot?.settings.salesPriceMode ?? 'excl' }] }
         : { ...d, lines: d.lines.filter((l) => l.productId !== shipProduct?.id) },
     );
+
+  const [newItemOpen, setNewItemOpen] = useState(false);
+  /** An item made at the counter: added like a product, with the typed rate. */
+  const addNewItem = (productId: number, rateText: string) => {
+    const key = uuid();
+    setDraft((d) => ({ ...d, lines: [...d.lines, { key, productId, qtyText: '1', discText: '', rateText, unitCode: null, mode: d.billMode ?? boot?.settings.salesPriceMode ?? 'excl' }] }));
+    setFocusKey(key);
+  };
 
   const addProduct = (p: ProductRow) => {
     const key = uuid();
@@ -323,7 +332,7 @@ export function Billing() {
     if (!canSave || saving) return;
     setSaving(true);
     try {
-      const r = await post<{ id: number; number: string }>('/api/invoices', {
+      const r = await post<{ id: number; number: string; stockAdded?: { name: string; unit: string; addMilli: number }[] }>('/api/invoices', {
         clientRef: draft.clientRef,
         customerId: draft.customer?.id ?? null,
         customerName: draft.customer ? undefined : draft.walkinName || undefined,
@@ -333,7 +342,7 @@ export function Billing() {
         placeOfSupply: pos,
         paymentMode: draft.mode,
         notes: draft.notes || undefined,
-        details: cleanDetails(draft.details),
+        details: cleanDetails({ ...draft.details, saleBy: draft.details?.saleBy ?? user?.userName ?? '' }),
         creditOverrideToken,
         partnerId: draft.partner?.id ?? null,
         siteId: draft.partner ? (draft.siteId ?? null) : null,
@@ -361,6 +370,7 @@ export function Billing() {
         text: (
           <>
             Bill <b className="num">{r.number}</b> saved · ₹{formatPaise(totals.totalPaise)}
+            {r.stockAdded?.length ? <> · added to stock: {r.stockAdded.map((a) => `${a.name} +${formatQty(a.addMilli)} ${a.unit}`).join(', ')}</> : null}
           </>
         ),
         action: print ? undefined : { label: 'Print', onClick: () => window.open(`/print/invoice/${r.id}?auto=1`, '_blank') },
@@ -469,6 +479,9 @@ export function Billing() {
               className="flex-1 bg-transparent text-[17px] outline-none focus-visible:outline-none"
             />
             <Kbd>F2</Kbd>
+            <button type="button" onClick={() => setNewItemOpen(true)} className="h-9 whitespace-nowrap rounded-[6px] border border-line-2 px-2.5 text-[13px] font-semibold hover:bg-paper">
+              + New item
+            </button>
           </div>
           {q.trim() && searchFocused && (
             <div role="listbox" aria-label="Matching products" className="absolute inset-x-0 top-[58px] z-20 overflow-hidden rounded-[6px] border border-line bg-white shadow-xl">
@@ -546,7 +559,7 @@ export function Billing() {
                             <span>service, no stock</span>
                           ) : (
                             <span className={r.short ? 'font-bold text-bad' : r.available <= 0 ? 'text-bad' : 'text-good'}>
-                              {r.short ? `only ${formatQty(Math.max(0, r.available))} ${r.p.unit_code} in stock` : `${formatQty(r.available)} ${r.p.unit_code} in stock`}
+                              {r.short ? `only ${formatQty(Math.max(0, r.available))} ${r.p.unit_code} in stock — the rest will be added` : `${formatQty(r.available)} ${r.p.unit_code} in stock`}
                             </span>
                           )}
                         </div>
@@ -595,7 +608,7 @@ export function Billing() {
                             discRefs.current.get(r.l.key)?.select();
                           }
                         }}
-                        className={cx('num h-9 w-full rounded-[6px] border bg-white px-2.5 text-right outline-none focus:border-teal focus:ring-4 focus:ring-teal-soft', r.qtyMilli == null || r.short ? 'border-bad' : 'border-line-2')}
+                        className={cx('num h-9 w-full rounded-[6px] border bg-white px-2.5 text-right outline-none focus:border-teal focus:ring-4 focus:ring-teal-soft', r.qtyMilli == null ? 'border-bad' : r.short ? 'border-warn' : 'border-line-2')}
                       />
                       {r.saleUnits.length > 1 ? (
                         <select
@@ -789,6 +802,14 @@ export function Billing() {
           )}
         </div>
 
+        <Field label={t('Sale by')} hint="Printed on the bill">
+          <Input
+            aria-label="Sale by"
+            value={draft.details?.saleBy ?? user?.userName ?? ''}
+            onChange={(e) => setDraft((d) => ({ ...d, details: { ...(d.details ?? {}), saleBy: e.target.value } }))}
+          />
+        </Field>
+
         <PartnerPicker partner={draft.partner ?? null} siteId={draft.siteId ?? null} onChange={(partner, siteId) => setDraft((d) => ({ ...d, partner, siteId }))} />
 
         <div className="flex flex-col gap-2.5 rounded-[6px] border border-line bg-white px-4 py-3.5">
@@ -885,7 +906,11 @@ export function Billing() {
         {gstinNoDetails && <Notice tone="bad">A bill with a GST number needs the customer’s name and address. Type them above.</Notice>}
         {bigNoDetails && <Notice tone="bad">Bills of ₹50,000 or more need the customer’s name and address (GST rule). Choose the customer, or type the walk-in name and address.</Notice>}
         {blockedLine >= 0 && <Notice tone="bad">Line {blockedLine + 1} needs admin approval before this bill can be saved.</Notice>}
-        {shortLine >= 0 && blockedLine < 0 && <Notice tone="bad">Line {shortLine + 1} has more than the stock available.</Notice>}
+        {shortLine >= 0 && blockedLine < 0 && (
+          <Notice tone="warn">
+            Line {shortLine + 1} is more than the stock in the records. You can still save: the missing quantity will be added to stock (noted with this bill), then sold.
+          </Notice>
+        )}
         {invalidLine >= 0 && <Notice tone="bad">Line {invalidLine + 1} has a quantity, rate or discount that isn’t a valid number.</Notice>}
 
         <Button variant="primary" size="lg" disabled={!canSave} busy={saving} onClick={() => void save(true)} className="h-14 text-lg font-extrabold tracking-[.04em]">
@@ -933,6 +958,18 @@ export function Billing() {
           setTimeout(() => searchRef.current?.focus(), 50);
         }}
       />
+      <QuickItem
+        open={newItemOpen}
+        initialName={q}
+        billMode={billMode}
+        onClose={() => setNewItemOpen(false)}
+        onCreated={async (id, rateText) => {
+          await products.refetch();
+          addNewItem(id, rateText);
+          setQ('');
+          setNewItemOpen(false);
+        }}
+      />
       <QuickCustomer
         open={addCustomerOpen}
         initialName={custQ}
@@ -956,7 +993,7 @@ function GstinInput({ value, bad, onChange }: { value: string; bad: boolean; onC
         placeholder="GST number (optional), e.g. 37ABCDE1234F1Z5"
         value={value}
         maxLength={15}
-        onChange={(e) => onChange(e.target.value.toUpperCase().replace(/s/g, ''))}
+        onChange={(e) => onChange(e.target.value.toUpperCase().replace(/\s/g, ''))}
         className={cx('uppercase', bad && 'border-bad')}
       />
       {bad && <div className="mt-1 text-xs text-bad">GST number is not valid — check for a typo (15 characters)</div>}
@@ -973,14 +1010,113 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function QuickCustomer({ open, onClose, onCreated, initialName }: { open: boolean; onClose: () => void; onCreated: (c: Draft['customer'] & {}) => void; initialName: string }) {
+const GST_RATES = ['0', '5', '12', '18', '28'];
+
+/** An item that isn't in the product list yet: make it on the spot and bill it. HSN can be left blank and filled in later. */
+function QuickItem({ open, initialName, billMode, onClose, onCreated }: { open: boolean; initialName: string; billMode: PriceMode; onClose: () => void; onCreated: (productId: number, rateText: string) => void }) {
+  const units = useQuery({ queryKey: ['units'], queryFn: () => get<{ code: string; name: string }[]>('/api/units'), enabled: open });
   const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [address, setAddress] = useState('');
+  const [unit, setUnit] = useState('nos');
+  const [gst, setGst] = useState('18');
+  const [hsn, setHsn] = useState('');
+  const [rate, setRate] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (open) {
+      setName(initialName.trim());
+      setUnit('nos');
+      setGst('18');
+      setHsn('');
+      setRate('');
+      setError(null);
+    }
+  }, [open, initialName]);
+  const rateP = parseRupees(rate);
+  const valid = name.trim().length >= 2 && rateP != null && rateP > 0;
+  const submit = async () => {
+    if (!valid) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await post<{ id: number; existing: boolean }>('/api/products/quick', { name: name.trim(), unitCode: unit, gstRateBp: Math.round(Number(gst) * 100), hsn: hsn.trim() || null });
+      onCreated(r.id, rate.trim());
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not add the item');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="New item (not in the list)"
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="dark" busy={busy} disabled={!valid} onClick={() => void submit()}>
+            Add to bill
+          </Button>
+        </>
+      }
+    >
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <Field label="Item name">
+          <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="e.g. 6 mm binding wire" />
+        </Field>
+        <div className="grid grid-cols-3 gap-2">
+          <Field label="Unit">
+            <Select value={unit} onChange={(e) => setUnit(e.target.value)}>
+              {(units.data ?? [{ code: 'nos', name: 'Numbers' }]).map((u) => (
+                <option key={u.code} value={u.code}>
+                  {u.code}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="GST %">
+            <Select value={gst} onChange={(e) => setGst(e.target.value)}>
+              {GST_RATES.map((g) => (
+                <option key={g} value={g}>
+                  {g}%
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label={`Rate (${billMode === 'incl' ? 'incl.' : '+'} GST)`}>
+            <Input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="0.00" className="num text-right" />
+          </Field>
+        </div>
+        <Field label="HSN (optional)" hint="Leave blank for now — admin can fill it in later in Inventory">
+          <Input inputMode="numeric" value={hsn} onChange={(e) => setHsn(e.target.value.replace(/\D/g, '').slice(0, 8))} />
+        </Field>
+        <Notice tone="teal">It is saved to Inventory marked “Added at billing”, so the rest of its details can be filled in later.</Notice>
+        {error && <Notice tone="bad">{error}</Notice>}
+        <button type="submit" hidden />
+      </form>
+    </Modal>
+  );
+}
+
+function QuickCustomer({ open, onClose, onCreated, initialName }: { open: boolean; onClose: () => void; onCreated: (c: Draft['customer'] & {}) => void; initialName: string }) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [gstin, setGstin] = useState('');
+  const [gst, setGst] = useState<GstInfo>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) {
+      setGstin('');
+      setGst({});
       const looksLikePhone = /^\d[\d\s]{5,}$/.test(initialName.trim());
       setName(looksLikePhone ? '' : initialName);
       setPhone(looksLikePhone ? initialName.trim() : '');
@@ -992,8 +1128,9 @@ function QuickCustomer({ open, onClose, onCreated, initialName }: { open: boolea
     setBusy(true);
     setError(null);
     try {
-      const r = await post<{ id: number }>('/api/customers', { name, phone: phone || null, address: address || null });
-      onCreated({ id: r.id, name, phone: phone || null, address: address || null, balance_paise: 0, credit_limit_paise: null });
+      const g = gstin.trim().toUpperCase() || null;
+      const r = await post<{ id: number }>('/api/customers', { name, phone: phone || null, address: address || null, gstin: g, gst: gstBody(g ? gst : {}) });
+      onCreated({ id: r.id, name, phone: phone || null, address: address || null, gstin: g, balance_paise: 0, credit_limit_paise: null });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not add customer');
     } finally {
@@ -1030,6 +1167,16 @@ function QuickCustomer({ open, onClose, onCreated, initialName }: { open: boolea
         <Field label="Area / address">
           <Input value={address} onChange={(e) => setAddress(e.target.value)} />
         </Field>
+        <GstDetailsFields
+          gstin={gstin}
+          onGstin={setGstin}
+          gst={gst}
+          onGst={setGst}
+          onFound={(g) => {
+            if (!name.trim()) setName(g.tradeName || g.legalName || '');
+            if (!address.trim()) setAddress(g.address ?? '');
+          }}
+        />
         {error && <Notice tone="bad">{error}</Notice>}
         <button type="submit" hidden />
       </form>

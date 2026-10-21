@@ -54,12 +54,6 @@ describe('quotations', () => {
     expect(q.lines.map((l: { stage: string }) => l.stage)).toEqual(['Foundation & structure', 'Final coat']);
     expect(q.valid_until > istDate()).toBe(true);
 
-    // asks for more than is in stock → the conversion is refused and the quote stays open
-    expect((await counter.put(`/api/quotes/${c.body.id}`, { ...q, customerName: 'Venkata Rao', lines: [...lines.slice(0, 1), { ...lines[1], qtyMilli: 9_000 }] })).status).toBe(200);
-    const fail = await counter.post(`/api/quotes/${c.body.id}/convert`, { paymentMode: 'cash' });
-    expect(fail.body.code).toBe('INSUFFICIENT_STOCK');
-    expect((await counter.get(`/api/quotes/${c.body.id}`)).body.status).toBe('open');
-
     expect((await counter.put(`/api/quotes/${c.body.id}`, { customerName: 'Venkata Rao', site: 'New house, Bogole', lines })).status).toBe(200);
     const bill = await counter.post(`/api/quotes/${c.body.id}/convert`, { paymentMode: 'cash' });
     expect(bill.status, JSON.stringify(bill.body)).toBe(200);

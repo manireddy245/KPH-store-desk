@@ -71,6 +71,8 @@ interface StoreSettingsDto {
   discountHintEnabled: boolean;
   allowNegativeStock: boolean;
   geminiApiKeySet: boolean;
+  gstLookupUrl?: string;
+  gstLookupKeySet?: boolean;
   geminiModel: string;
   geminiThinking: 'minimal' | 'low' | 'medium' | 'high';
   purchasePrefix: string;
@@ -92,6 +94,7 @@ function StoreSettings() {
   const q = useQuery({ queryKey: ['settings'], queryFn: () => get<StoreSettingsDto>('/api/settings') });
   const [f, setF] = useState<Record<string, string | boolean>>({});
   const [key, setKey] = useState('');
+  const [gstKey, setGstKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -119,6 +122,7 @@ function StoreSettings() {
       negative: s.allowNegativeStock,
       geminiModel: s.geminiModel,
       geminiThinking: s.geminiThinking,
+      gstLookupUrl: s.gstLookupUrl ?? '',
       purchasePrefix: s.purchasePrefix,
       ownerPhone: s.ownerPhone,
       ownerEmail: s.ownerEmail,
@@ -170,9 +174,12 @@ function StoreSettings() {
         leadDaysDefault: Number(f.leadDaysDefault),
         oldStockDays: Number(f.oldStockDays),
         quoteValidDays: Number(f.quoteValidDays),
+        gstLookupUrl: String(f.gstLookupUrl ?? '').trim(),
         ...(key ? { geminiApiKey: key } : {}),
+        ...(gstKey ? { gstLookupKey: gstKey } : {}),
       });
       setKey('');
+      setGstKey('');
       toast({ tone: 'good', text: 'Settings saved' });
       await qc.invalidateQueries({ queryKey: ['settings'] });
       await reload();
@@ -265,6 +272,12 @@ function StoreSettings() {
           </Field>
           <Field label="Gemini API key (invoice scanner and assistant)" hint={q.data.geminiApiKeySet ? 'A key is saved. Type a new one to replace it.' : 'Not set. Kept on this server only; never included in backups.'} className="sm:col-span-2">
             <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
+          </Field>
+          <Field label="GST number lookup — service address" hint="Fills a customer's legal name, trade name, Regular / Composition and status from their GSTIN. Paste the address your GST lookup provider gives, with {gstin} (and {key}) in it. Blank = off." className="sm:col-span-2">
+            <Input value={String(f.gstLookupUrl ?? '')} onChange={t('gstLookupUrl')} placeholder="https://…/{key}/{gstin}" />
+          </Field>
+          <Field label="GST lookup key" hint={q.data.gstLookupKeySet ? 'A key is saved. Type a new one to replace it.' : 'Not set. Kept on this server only; never included in backups.'} className="sm:col-span-2">
+            <Input type="password" value={gstKey} onChange={(e) => setGstKey(e.target.value)} autoComplete="off" />
           </Field>
         </div>
       </Card>
@@ -377,7 +390,7 @@ function GstSettings() {
               <option value="incl">Including GST</option>
             </Select>
           </Field>
-          <Field label="Invoice labels">
+          <Field label="Quotation &amp; challan labels" hint="Tax invoices always print in English">
             <Select value={f.invoiceLabels ?? 'te-en'} onChange={t('invoiceLabels')}>
               <option value="en">English</option>
               <option value="te-en">English + Telugu</option>

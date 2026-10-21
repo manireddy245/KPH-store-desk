@@ -25,6 +25,9 @@ export interface StoreSettings {
   geminiModel: string;
   /** How long Gemini "thinks" before answering (Gemini 3 models): lower is faster. */
   geminiThinking: 'minimal' | 'low' | 'medium' | 'high';
+  /** GST number lookup service: its address with {gstin} (and {key}) in it, e.g. https://…/{key}/{gstin}. Blank = off. */
+  gstLookupUrl: string;
+  gstLookupKey: string;
   purchasePrefix: string;
   paymentPrefix: string;
   expensePrefix: string;
@@ -95,6 +98,8 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   geminiApiKey: '',
   geminiModel: 'gemini-3.8-flash',
   geminiThinking: 'low',
+  gstLookupUrl: '',
+  gstLookupKey: '',
   purchasePrefix: 'PUR',
   paymentPrefix: 'PAY',
   expensePrefix: 'EXP',
@@ -130,7 +135,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
 };
 
 /** Never included in backups or sent to non-admin screens. */
-export const SECRET_SETTINGS: (keyof StoreSettings)[] = ['geminiApiKey', 'backupPassphrase'];
+export const SECRET_SETTINGS: (keyof StoreSettings)[] = ['geminiApiKey', 'backupPassphrase', 'gstLookupKey'];
 
 export async function getSettings(q: Q): Promise<StoreSettings> {
   const rows = await q<{ key: string; value: unknown }[]>`select key, value from settings`;
@@ -149,6 +154,6 @@ export async function setSettings(q: Q, patch: Partial<StoreSettings>) {
 }
 
 export function publicSettings(s: StoreSettings) {
-  const { geminiApiKey, backupPassphrase, ...rest } = s;
-  return { ...rest, geminiApiKeySet: !!geminiApiKey, backupPassphraseSet: !!backupPassphrase };
+  const { geminiApiKey, backupPassphrase, gstLookupKey, ...rest } = s;
+  return { ...rest, geminiApiKeySet: !!geminiApiKey, backupPassphraseSet: !!backupPassphrase, gstLookupKeySet: !!gstLookupKey };
 }

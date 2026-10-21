@@ -78,6 +78,8 @@ export interface InvoiceDetailsInput {
   dispatchedThrough?: string | null;
   destination?: string | null;
   termsOfDelivery?: string | null;
+  /** Salesperson named on the printed bill. */
+  saleBy?: string | null;
 }
 
 const DETAIL_COLUMNS: Record<keyof InvoiceDetailsInput, string> = {
@@ -92,6 +94,7 @@ const DETAIL_COLUMNS: Record<keyof InvoiceDetailsInput, string> = {
   dispatchedThrough: 'dispatched_through',
   destination: 'destination',
   termsOfDelivery: 'terms_of_delivery',
+  saleBy: 'sale_by',
 };
 
 /** Trimmed details as table columns; blanks become null. */
@@ -138,6 +141,7 @@ export interface ProductForBill {
   max_disc_value: number | null;
   /** A service (loading charges, transport…): billed like an item but no stock. */
   is_service: boolean;
+  added_at_billing: boolean;
   cat_disc_type: 'pct' | 'amt' | null;
   cat_disc_value: number | null;
   units: { unit_code: string; factor_num: number; factor_den: number; for_sale: boolean; for_purchase?: boolean; price_paise: number | null }[];
@@ -179,7 +183,7 @@ export function listRate(p: Pick<ProductForBill, 'sale_price_paise' | 'price_inc
 }
 
 export const PRODUCT_FOR_BILL_COLUMNS = `
-  p.id, p.sku, p.name, p.hsn, p.unit_code, p.gst_rate_bp, p.sale_price_paise, p.price_includes_tax, p.cost_price_cp, p.active, p.is_service,
+  p.id, p.sku, p.name, p.hsn, p.unit_code, p.gst_rate_bp, p.sale_price_paise, p.price_includes_tax, p.cost_price_cp, p.active, p.is_service, p.added_at_billing,
   p.max_disc_type, p.max_disc_value, c.max_disc_type as cat_disc_type, c.max_disc_value as cat_disc_value,
   coalesce((select json_agg(json_build_object('unit_code', u.unit_code, 'factor_num', u.factor_num, 'factor_den', u.factor_den,
             'for_sale', u.for_sale, 'for_purchase', u.for_purchase, 'price_paise', u.price_paise)) from product_units u where u.product_id = p.id), '[]'::json) as units`;
@@ -259,15 +263,13 @@ async function saveInvoice(
     const available = new Map(balances.map((b) => [b.product_id, b.qty_milli]));
     const needed = new Map<number, number>();
     for (const r of resolved) if (!r.p.is_service) needed.set(r.p.id, (needed.get(r.p.id) ?? 0) + r.baseMilli);
-    if (!settings.allowNegativeStock) {
-      const short = [...needed]
-        .filter(([id, qty]) => qty > (available.get(id) ?? 0))
-        .map(([id, qty]) => ({ productId: id, name: byId.get(id)!.name, unit: byId.get(id)!.unit_code, neededMilli: qty, availableMilli: available.get(id) ?? 0 }));
-      if (short.length) {
-        const msg = short.map((s) => `${s.name}: need ${formatQty(s.neededMilli)}, only ${formatQty(s.availableMilli)} ${s.unit} in stock`).join('; ');
-        throw new AppError(409, 'INSUFFICIENT_STOCK', `Not enough stock — ${msg}`, { items: short });
-      }
-    }
+    // Selling more than the records show (old stock never entered): the missing quantity is added to
+    // stock first, with a note, so the sale goes through and the stock ledger stays right.
+    const stockAdded = settings.allowNegativeStock
+      ? []
+      : [...needed]
+          .filter(([id, qty]) => qty > (available.get(id) ?? 0))
+          .map(([id, qty]) => ({ productId: id, name: byId.get(id)!.name, unit: byId.get(id)!.unit_code, addMilli: qty - Math.max(0, available.get(id) ?? 0) }));
 
     const [me] = await tx<{ discount_cap_bp: number | null }[]>`select discount_cap_bp from users where id = ${ctx.userId}`;
     const staffCapBp = me?.discount_cap_bp ?? null;
@@ -276,8 +278,8 @@ async function saveInvoice(
     const overLimit: { lineNo: number; productId: number; name: string; discountBp: number; maxBp: number; approvedBy: number | null; overrideId: number | null }[] = [];
     for (const [i, r] of resolved.entries()) {
       const { p, l, unit, ratePaise, list, mode } = r;
-      // a service with no fixed price (shipping charges) takes the amount typed at the counter
-      if (ratePaise !== list && !(p.is_service && list === 0) && !can(ctx, 'products.edit_price')) {
+      // no fixed price (shipping charges, an item made at the counter): the rate typed at the counter is used
+      if (ratePaise !== list && !((p.is_service || p.added_at_billing) && list === 0) && !can(ctx, 'products.edit_price')) {
         throw new AppError(403, 'PRICE_CHANGE_NOT_ALLOWED', `Only admin can change the price of "${p.name}"`);
       }
       const maxBp = effectiveMaxDiscountBp({
@@ -437,6 +439,22 @@ async function saveInvoice(
       }),
     )}`;
 
+    if (stockAdded.length) {
+      await tx`insert into stock_movements ${tx(
+        stockAdded.map((a) => ({
+          product_id: a.productId,
+          qty_milli: a.addMilli,
+          kind: 'adjustment',
+          ref_type: 'sales_invoice',
+          ref_id: id,
+          reason: `Not in stock records — added when billing ${number}`,
+          user_id: ctx.userId,
+          device_id: ctx.deviceId,
+        })),
+      )}`;
+      await audit(tx, ctx, 'stock.added_at_billing', { entity: 'sales_invoice', entityId: id, details: { number, items: stockAdded.map((a) => `${a.name}: +${formatQty(a.addMilli)} ${a.unit}`) } });
+    }
+
     const goods = prepared.filter(({ p }) => !p.is_service);
     if (goods.length) await tx`insert into stock_movements ${tx(
       goods.map(({ p, baseMilli }) => ({
@@ -479,7 +497,7 @@ async function saveInvoice(
         approvedBy: o.approvedBy,
       });
     }
-    return { id, number, duplicate: false };
+    return { id, number, duplicate: false, stockAdded };
   });
 }
 
