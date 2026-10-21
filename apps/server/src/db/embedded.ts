@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import postgres from 'postgres';
 
@@ -102,13 +102,15 @@ function isRunningPostgres(pid: number): boolean {
  */
 function clearLeftovers(pidFile: string) {
   if (process.platform === 'win32') {
-    // Helper processes of the bundled PostgreSQL only — never any other PostgreSQL on this PC.
+    // Orphaned helpers of THIS database only (their command line names this data folder) —
+    // never another Store Desk's database, nor any other PostgreSQL on this PC.
+    const dataDir = dirname(pidFile).replace(/\\/g, '/').replace(/'/g, "''");
     spawnSync(
       'powershell.exe',
       [
         '-NoProfile',
         '-Command',
-        "Get-CimInstance Win32_Process -Filter \"Name='postgres.exe'\" | Where-Object { $_.CommandLine -like '*@embedded-postgres*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+        `Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $_.CommandLine -like '*@embedded-postgres*' -and ($_.CommandLine -replace '\\\\','/') -like '*${dataDir}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
       ],
       { stdio: 'ignore', timeout: 20_000 },
     );
