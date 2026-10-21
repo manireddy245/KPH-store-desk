@@ -22,7 +22,7 @@ export interface ScanPage {
 /** What we ask the model to return. Amounts in rupees, as printed. */
 export interface ReadBill {
   supplier: { name: string | null; gstin: string | null; phone: string | null; address: string | null };
-  invoice: { number: string | null; date: string | null; is_interstate: boolean | null };
+  invoice: { number: string | null; date: string | null; is_interstate: boolean | null; billed_to_us?: boolean | null; billed_to_name?: string | null };
   lines: {
     description: string;
     item_code: string | null;
@@ -50,7 +50,13 @@ const SCHEMA = {
     },
     invoice: {
       type: 'OBJECT',
-      properties: { number: { type: 'STRING', nullable: true }, date: { type: 'STRING', nullable: true, description: 'YYYY-MM-DD' }, is_interstate: { type: 'BOOLEAN', nullable: true } },
+      properties: {
+        number: { type: 'STRING', nullable: true },
+        date: { type: 'STRING', nullable: true, description: 'YYYY-MM-DD' },
+        is_interstate: { type: 'BOOLEAN', nullable: true },
+        billed_to_us: { type: 'BOOLEAN', nullable: true },
+        billed_to_name: { type: 'STRING', nullable: true },
+      },
     },
     lines: {
       type: 'ARRAY',
@@ -79,20 +85,34 @@ const SCHEMA = {
   required: ['supplier', 'invoice', 'lines'],
 };
 
-const PROMPT = `You are reading a GST tax invoice from a supplier to "Kanakapatnam Paints and Hardwares" (Kavali, Andhra Pradesh) — a paint, cement, steel, pipes, sanitary, electrical and hardware shop. The images are pages of ONE invoice, in order.
+const PROMPT = `You are reading a GST tax invoice for goods bought by "Kanakapatnam Paints and Hardwares" (Kavali, Andhra Pradesh, GSTIN 37DZMPM4249D1Z3) — a paint, cement, steel, pipes, sanitary, electrical and hardware shop. The images are pages of ONE invoice, in order. A photo may be sideways or upside down: read it in whatever direction the text runs. Items and totals may continue over several pages: read all pages, and take the totals from the last page.
 
-Return every item line exactly as printed. For each line:
-- description: the item name as printed (include size/pack, e.g. "PPC 50 KG", "Emulsion 20 Ltr")
-- item_code: the supplier's item/part code if a separate column shows one, else null
-- hsn: HSN/SAC code
-- quantity and unit (bags, kg, ltr, nos, mtr, coils, ton...). If both "Qty" and "Alt qty" are printed, use the billed quantity.
-- rate: rate per unit BEFORE GST
-- discount_percent: trade/cash discount % on the line, if any
-- taxable_value: the line amount BEFORE GST and AFTER discount
-- gst_percent: total GST rate for the line (CGST% + SGST%, or IGST%)
-- line_total: line amount including GST if printed, else null
-Also: supplier name, supplier GSTIN, invoice number, invoice date as YYYY-MM-DD (Indian dates are day-month-year), whether the supply is inter-state (IGST charged), freight/transport/loading charges, round off, and the grand total.
-Use plain numbers without commas or currency symbols. Do not invent values: use null when something is not printed or unreadable. Put anything unclear (smudged figures, handwritten changes) in notes.`;
+Bills the shop gets look like these:
+- Manufacturers' e-invoices (UltraTech, Grasim / Birla Pivot, V-Guard, Sudhakar PVC…) with an IRN, QR code, e-way bill number and many columns.
+- Distributors' printed or handwritten bills (e.g. steel from a JSW Neosteel dealer), where quantity is often shown both in M.T. and in KGs.
+- Some come through Grasim / Birla Pivot: the manufacturer's bill is "Billed to" GRASIM INDUSTRIES and only "Shipped to" / "Consignee" Kanakapatnam. Grasim then sends its own bill to the shop.
+
+THE SELLER is the company in the header at the top (with its GSTIN), never the "Bill to", "Buyer", "Ship to" or "Consignee" party. Kanakapatnam is never the seller.
+billed_to_us: true when the "Bill to" / "Buyer" party is Kanakapatnam Paints and Hardwares (or GSTIN 37DZMPM4249D1Z3); false when the bill is made out to another company (e.g. Grasim Industries) and Kanakapatnam is only the consignee / ship-to; null if not shown.
+
+MOST IMPORTANT — the cost is the FINAL price the shop pays, before GST. The shop adds GST on top itself.
+- taxable_value: the line's final amount AFTER EVERY discount (line discount %, header discount, trade discount, cash discount, scheme / special discount) and BEFORE GST. It is usually the column called "Taxable Value", "Taxable Amount" or "Assessable Value". Never give the gross amount, the MRP or the list / "Basic Price" amount.
+- If a discount is printed only once for the whole bill (not per line), share it out over the lines in proportion to their amounts, so that the lines' taxable values add up to the bill's total taxable value.
+- rate: the FINAL rate per unit after all discounts, before GST (= taxable_value ÷ quantity). Not the list rate, not MRP.
+- discount_percent: the total discount % that was taken off the list price, for information only; null if none.
+- Do not add GST, cess or round-off into taxable_value or rate.
+
+For each item line:
+- description: the item name as printed, with size / grade / pack (e.g. "ULTRATECH SUPER PPC 50 KG", "12 MM TMT FE550D", "Legrand Myrius 6A switch")
+- item_code: the supplier's item / material / "Mfg Item Id" / SKU code if printed, else null
+- hsn: the HSN/SAC code exactly as printed (digits only)
+- quantity and unit: the quantity in the unit the RATE is charged per (M.T. / MT / Ton for steel and cement billed per tonne; NOS / EA / PCS / Piece; BAGS; KG; LTR; MTR; COIL; BOX). If the same quantity is also shown in another unit (e.g. "5.165 MTs = 5165 KGs", "10 MT = 200 bags of 50 kg"), still give the unit the rate is per, and mention the other figure in notes.
+- gst_percent: the line's total GST rate (CGST% + SGST%, or the IGST%), e.g. 18 or 28
+- line_total: the line amount including GST if printed, else null
+Also: the seller's name, GSTIN, phone and address; the invoice number (the "Invoice No" / "Bill No" — not the IRN, ack number, order number, e-way bill number or delivery number); the invoice date as YYYY-MM-DD (Indian dates are day-month-year, e.g. 09.10.2026 = 2026-10-09); is_interstate (true when IGST is charged, false for CGST + SGST); freight / transport / loading / shipping charges billed separately (not inside a line); round off (+ or −); and the grand total payable.
+Ignore the IRN, QR code, bank details, terms and conditions and signatures.
+notes: short, plain notes for the person checking the bill: the e-way bill number and vehicle number if printed, other-unit quantities (KGs, bags), how a bill-level discount was shared out, and anything unclear (smudged figures, handwritten changes).
+Use plain numbers without commas or currency symbols. Do not invent values: use null when something is not printed or unreadable.`;
 
 export type ModelCaller = (args: { apiKey: string; model: string; pages: ScanPage[]; thinking?: ThinkingLevel }) => Promise<ReadBill>;
 export type ThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
@@ -280,12 +300,13 @@ export async function scanBill(
     let taxablePaise = toPaise(l.taxable_value);
     const gstRateBp = toBp(l.gst_percent);
     const warnings: string[] = [];
+    // rate is the final rate after all discounts (discount_percent is for information only)
     if (taxablePaise == null && ratePaise != null && qtyMilli != null) {
-      taxablePaise = Math.round((ratePaise * qtyMilli) / 1000 - (discountBp ? (ratePaise * qtyMilli * discountBp) / 1000 / 10000 : 0));
+      taxablePaise = Math.round((ratePaise * qtyMilli) / 1000);
       warnings.push('Line amount worked out from rate × quantity');
     }
     if (ratePaise != null && qtyMilli != null && taxablePaise != null) {
-      const expected = (ratePaise * qtyMilli) / 1000 * (1 - (discountBp ?? 0) / 10000);
+      const expected = (ratePaise * qtyMilli) / 1000;
       if (Math.abs(expected - taxablePaise) > Math.max(100, expected * 0.01)) warnings.push('Rate × quantity does not match the line amount — check this line');
     }
     if (qtyMilli == null) warnings.push('Quantity not readable');
@@ -334,7 +355,16 @@ export async function scanBill(
     freightPaise: toPaise(read.freight),
     roundOffPaise: toPaise(read.round_off),
     grandTotalPaise: toPaise(read.grand_total),
-    notes: read.notes ?? null,
+    notes:
+      [
+        read.invoice?.billed_to_us === false
+          ? `This bill is made out to ${read.invoice.billed_to_name || 'another company'}, not to us — we are only the ship-to. Our purchase bill for these goods is that company's bill (e.g. Grasim / Birla Pivot): enter that one instead, so the stock isn't added twice.`
+          : null,
+        read.notes,
+      ]
+        .filter(Boolean)
+        .join(' ') || null,
+    billedToUs: read.invoice?.billed_to_us ?? null,
     duplicateOf,
   };
 }
