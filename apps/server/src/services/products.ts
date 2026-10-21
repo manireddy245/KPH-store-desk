@@ -202,9 +202,26 @@ export async function updateProduct(sql: Sql, ctx: Ctx, id: number, input: Produ
     return await sql.begin(async (tx) => {
       const [old] = await tx<Record<string, unknown>[]>`select * from products where id = ${id} for update`;
       if (!old) throw new AppError(404, 'NOT_FOUND', 'Product not found');
+      // Stock unit changing after there is stock: convert by "1 old unit = F new units" (the old unit's row in units)
+      let convert: { factor: number; from: string; to: string } | null = null;
       if (input.unitCode !== undefined && input.unitCode !== old.unit_code) {
         const [moved] = await tx`select 1 from stock_movements where product_id = ${id} limit 1`;
-        if (moved) throw new AppError(400, 'UNIT_LOCKED', `Stock of this product is kept in ${old.unit_code}. Its base unit can't change once it has stock — add other units instead.`);
+        if (moved) {
+          const oldUnit = old.unit_code as string;
+          const row = input.units?.find((u) => u.unitCode === oldUnit);
+          if (!row)
+            throw new AppError(400, 'UNIT_LOCKED', `Stock of this product is kept in ${oldUnit}. To count it in ${input.unitCode} instead, say how many ${input.unitCode} are in 1 ${oldUnit}.`);
+          convert = { factor: row.factorNum / (row.factorDen ?? 1), from: oldUnit, to: input.unitCode };
+          // per-unit amounts left as they were are still per old unit: convert them too
+          const per = (k: keyof ProductInput, col: string, f: (v: number) => number) => {
+            const v = input[k] as number | null | undefined;
+            if ((v === undefined || v === old[col]) && old[col] != null) (input as Record<string, unknown>)[k] = f(Number(old[col]));
+          };
+          per('costPriceCp', 'cost_price_cp', (v) => Math.round(v / convert!.factor));
+          per('salePricePaise', 'sale_price_paise', (v) => Math.round(v / convert!.factor));
+          per('mrpPaise', 'mrp_paise', (v) => Math.round(v / convert!.factor));
+          per('reorderLevelMilli', 'reorder_level_milli', (v) => Math.round(v * convert!.factor));
+        }
       }
       const changes: Record<string, { from: unknown; to: unknown }> = {};
       const set: Record<string, unknown> = {};
@@ -222,6 +239,18 @@ export async function updateProduct(sql: Sql, ctx: Ctx, id: number, input: Produ
       }
       if (!Object.keys(changes).length) return { id, changed: false };
       if (Object.keys(set).length) await tx`update products set ${tx(set)}, updated_at = now() where id = ${id}`;
+      if (convert) {
+        const [b] = await tx<{ q: string }[]>`select coalesce((select qty_milli from stock_balances where product_id = ${id}), 0)::text as q`;
+        const before = Number(b!.q);
+        const delta = Math.round(before * convert.factor) - before;
+        const note = `Unit changed: 1 ${convert.from} = ${+convert.factor.toFixed(3)} ${convert.to}`;
+        if (delta !== 0)
+          await tx`insert into stock_movements (product_id, qty_milli, kind, reason, user_id, device_id)
+                   values (${id}, ${delta}, 'unit_change', ${note}, ${ctx.userId}, ${ctx.deviceId})`;
+        await tx`update purchase_order_lines l set qty_milli = greatest(1, round(l.qty_milli * ${convert.factor}::numeric))
+                 from purchase_orders o where o.id = l.po_id and l.product_id = ${id} and o.closed_at is null`;
+        changes.stockUnit = { from: convert.from, to: `${convert.to} (${note})` };
+      }
       for (const f of ['sale_price_paise', 'cost_price_cp', 'mrp_paise'] as const) {
         if (f in set) {
           await tx`insert into price_history (product_id, field, old_value, new_value, user_id, device_id)

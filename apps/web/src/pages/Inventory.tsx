@@ -826,6 +826,7 @@ const KIND_LABEL: Record<string, string> = {
   adjustment: 'Adjustment',
   audit: 'Stock audit',
   transfer: 'Transfer',
+  unit_change: 'Unit changed',
 };
 
 function StockCard({ product, onClose }: { product: ProductRow | null; onClose: () => void }) {

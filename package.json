@@ -15,6 +15,7 @@
     "typecheck": "pnpm -r typecheck",
     "db:reset-sample": "pnpm --filter @kph/server db:reset-sample",
     "backup": "pnpm --filter @kph/server backup",
-    "restore": "pnpm --filter @kph/server restore"
+    "restore": "pnpm --filter @kph/server restore",
+    "clear-books": "pnpm --filter @kph/server clear-books"
   }
 }

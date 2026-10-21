@@ -14,6 +14,7 @@ import {
   formatPaise,
   formatPercent,
   formatQty,
+  isValidGstin,
   parsePercent,
   parseQty,
   parseRupees,
@@ -54,6 +55,8 @@ interface Draft {
   walkinName: string;
   walkinPhone: string;
   walkinAddress?: string;
+  /** GST number typed on the bill (walk-in, or a saved customer with none on file). Optional. */
+  billGstin?: string;
   /** GST place of supply; null = automatic */
   pos?: string | null;
   billMode?: PriceMode;
@@ -160,7 +163,10 @@ export function Billing() {
 
   const shopState = boot?.settings.stateCode ?? '37';
   const billMode: PriceMode = draft.billMode ?? boot?.settings.salesPriceMode ?? 'excl';
-  const custState = draft.customer?.gstin ? draft.customer.gstin.slice(0, 2) : null;
+  const typedGstin = draft.customer?.gstin ? "" : (draft.billGstin ?? "").trim().toUpperCase();
+  const gstinBad = !!typedGstin && !isValidGstin(typedGstin);
+  const effGstin = draft.customer?.gstin || (typedGstin && !gstinBad ? typedGstin : null);
+  const custState = effGstin ? effGstin.slice(0, 2) : null;
   const pos = draft.pos ?? custState ?? shopState;
   const supply: SupplyType = pos === shopState ? 'intra' : 'inter';
 
@@ -213,9 +219,11 @@ export function Billing() {
   const creditProblem = draft.mode === 'credit' && !draft.customer;
   // GST rules (also enforced by the server)
   const b2bNoAddress = !!draft.customer?.gstin && !draft.customer.address;
+  // a walk-in with a GST number is a business: the bill needs their name and address
+  const gstinNoDetails = !!effGstin && !draft.customer && !(draft.walkinName.trim() && draft.walkinAddress?.trim());
   const bigNoDetails =
-    !draft.customer?.gstin && totals.totalPaise >= B2C_DETAILS_THRESHOLD_PAISE && !(draft.customer ? draft.customer.address : draft.walkinName.trim() && draft.walkinAddress?.trim());
-  const canSave = rows.length > 0 && blockedLine < 0 && invalidLine < 0 && shortLine < 0 && !creditProblem && !b2bNoAddress && !bigNoDetails;
+    !effGstin && totals.totalPaise >= B2C_DETAILS_THRESHOLD_PAISE && !(draft.customer ? draft.customer.address : draft.walkinName.trim() && draft.walkinAddress?.trim());
+  const canSave = rows.length > 0 && blockedLine < 0 && invalidLine < 0 && shortLine < 0 && !creditProblem && !b2bNoAddress && !bigNoDetails && !gstinBad && !gstinNoDetails;
 
   // ------------------------------------------------------------ search
   const searchRef = useRef<HTMLInputElement>(null);
@@ -251,6 +259,16 @@ export function Billing() {
     el?.select();
     setFocusKey(null);
   }, [focusKey, draft.lines.length]);
+
+  // Shipping charges: a tick box that adds/removes the built-in "Shipping charges" service line
+  const shipProduct = products.data?.find((p) => p.sku === 'SHIPPING' && p.active);
+  const shipLine = shipProduct ? draft.lines.find((l) => l.productId === shipProduct.id) : undefined;
+  const setShipping = (on: boolean) =>
+    setDraft((d) =>
+      on && shipProduct
+        ? { ...d, lines: [...d.lines, { key: uuid(), productId: shipProduct.id, qtyText: '1', discText: '', rateText: '', unitCode: null, mode: d.billMode ?? boot?.settings.salesPriceMode ?? 'excl' }] }
+        : { ...d, lines: d.lines.filter((l) => l.productId !== shipProduct?.id) },
+    );
 
   const addProduct = (p: ProductRow) => {
     const key = uuid();
@@ -311,6 +329,7 @@ export function Billing() {
         customerName: draft.customer ? undefined : draft.walkinName || undefined,
         customerPhone: draft.customer ? undefined : draft.walkinPhone || undefined,
         customerAddress: draft.customer ? undefined : draft.walkinAddress?.trim() || undefined,
+        customerGstin: typedGstin || undefined,
         placeOfSupply: pos,
         paymentMode: draft.mode,
         notes: draft.notes || undefined,
@@ -709,8 +728,9 @@ export function Billing() {
             <>
               <div>
                 <div className="text-base font-bold">{draft.customer.name}</div>
-                <div className="text-[13px] text-ink-3">{[draft.customer.phone, draft.customer.address].filter(Boolean).join(' · ')}</div>
+                <div className="text-[13px] text-ink-3">{[draft.customer.phone, draft.customer.address, draft.customer.gstin && `GSTIN ${draft.customer.gstin}`].filter(Boolean).join(' · ')}</div>
               </div>
+              {!draft.customer.gstin && <GstinInput value={draft.billGstin ?? ''} bad={gstinBad} onChange={(v) => setDraft((d) => ({ ...d, billGstin: v }))} />}
               <div className="grid grid-cols-2 gap-2">
                 <div className={cx('rounded-[4px] px-2.5 py-2', draft.customer.balance_paise > 0 ? 'bg-warn-soft text-warn-ink' : 'bg-concrete')}>
                   <div className="text-[11px]">{t('Balance due')}</div>
@@ -764,6 +784,7 @@ export function Billing() {
                 <Input aria-label="Walk-in phone" placeholder="Phone" inputMode="tel" value={draft.walkinPhone} onChange={(e) => setDraft((d) => ({ ...d, walkinPhone: e.target.value }))} />
                 <Input aria-label="Walk-in address" placeholder="Address / village" className="col-span-2" value={draft.walkinAddress ?? ''} onChange={(e) => setDraft((d) => ({ ...d, walkinAddress: e.target.value }))} />
               </div>
+              <GstinInput value={draft.billGstin ?? ''} bad={gstinBad} onChange={(v) => setDraft((d) => ({ ...d, billGstin: v }))} />
             </div>
           )}
         </div>
@@ -814,6 +835,30 @@ export function Billing() {
           )}
         </div>
 
+        {shipProduct && (
+          <div className="flex items-center gap-3 rounded-[6px] border border-line bg-white px-4 py-3">
+            <label className="flex flex-1 items-center gap-2 text-sm font-semibold">
+              <input type="checkbox" className="size-4 accent-teal" checked={!!shipLine} onChange={(e) => setShipping(e.target.checked)} />
+              {t('Shipping charges')}
+            </label>
+            {shipLine && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm text-ink-3">₹</span>
+                <Input
+                  aria-label="Shipping charge amount"
+                  inputMode="decimal"
+                  autoFocus
+                  placeholder="0.00"
+                  value={shipLine.rateText ?? ''}
+                  onChange={(e) => updateLine(shipLine.key, { rateText: e.target.value })}
+                  className="num h-9 w-28 text-right"
+                />
+                <span className="text-xs text-ink-3">{(shipLine.mode ?? billMode) === 'incl' ? 'incl. GST' : '+ GST'}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="num flex flex-col gap-1.5 rounded-[6px] border border-line bg-white px-4 py-3.5 text-sm">
           <Row label={t('Gross')} value={`₹${formatPaise(totals.grossPaise)}`} />
           <Row label={t('Discount')} value={totals.discountPaise ? `− ₹${formatPaise(totals.discountPaise)}` : '₹0.00'} />
@@ -837,6 +882,7 @@ export function Billing() {
         </div>
 
         {b2bNoAddress && <Notice tone="bad">{draft.customer?.name} is a registered business. Add their address in Customers — it must be on the GST bill.</Notice>}
+        {gstinNoDetails && <Notice tone="bad">A bill with a GST number needs the customer’s name and address. Type them above.</Notice>}
         {bigNoDetails && <Notice tone="bad">Bills of ₹50,000 or more need the customer’s name and address (GST rule). Choose the customer, or type the walk-in name and address.</Notice>}
         {blockedLine >= 0 && <Notice tone="bad">Line {blockedLine + 1} needs admin approval before this bill can be saved.</Notice>}
         {shortLine >= 0 && blockedLine < 0 && <Notice tone="bad">Line {shortLine + 1} has more than the stock available.</Notice>}
@@ -898,6 +944,23 @@ export function Billing() {
         }}
       />
     </main>
+  );
+}
+
+/** Optional customer GST number: capitals, 15 characters, checked as typed. */
+function GstinInput({ value, bad, onChange }: { value: string; bad: boolean; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <Input
+        aria-label="Customer GST number (optional)"
+        placeholder="GST number (optional), e.g. 37ABCDE1234F1Z5"
+        value={value}
+        maxLength={15}
+        onChange={(e) => onChange(e.target.value.toUpperCase().replace(/s/g, ''))}
+        className={cx('uppercase', bad && 'border-bad')}
+      />
+      {bad && <div className="mt-1 text-xs text-bad">GST number is not valid — check for a typo (15 characters)</div>}
+    </div>
   );
 }
 

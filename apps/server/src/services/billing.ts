@@ -7,6 +7,7 @@ import {
   effectiveMaxDiscountBp,
   formatQty,
   fyStartYear,
+  isValidGstin,
   istDate,
   stateFromGstin,
   toBase,
@@ -49,6 +50,8 @@ export interface InvoiceInput {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
+  /** GSTIN typed on the bill for a walk-in, or for a saved customer who has none on file (optional). */
+  customerGstin?: string;
   /** GST place of supply (state code). Default: the business customer's state, else the shop's state. */
   placeOfSupply?: string;
   paymentMode: PaymentMode;
@@ -273,7 +276,8 @@ async function saveInvoice(
     const overLimit: { lineNo: number; productId: number; name: string; discountBp: number; maxBp: number; approvedBy: number | null; overrideId: number | null }[] = [];
     for (const [i, r] of resolved.entries()) {
       const { p, l, unit, ratePaise, list, mode } = r;
-      if (ratePaise !== list && !can(ctx, 'products.edit_price')) {
+      // a service with no fixed price (shipping charges) takes the amount typed at the counter
+      if (ratePaise !== list && !(p.is_service && list === 0) && !can(ctx, 'products.edit_price')) {
         throw new AppError(403, 'PRICE_CHANGE_NOT_ALLOWED', `Only admin can change the price of "${p.name}"`);
       }
       const maxBp = effectiveMaxDiscountBp({
@@ -312,9 +316,13 @@ async function saveInvoice(
       customer = c;
     }
 
+    const typedGstin = input.customerGstin?.trim().toUpperCase() || null;
+    if (typedGstin && !isValidGstin(typedGstin)) throw new AppError(400, 'BAD_GSTIN', 'Customer GST number is not valid — check for a typo (15 characters, e.g. 37ABCDE1234F1ZZ)');
+    const gstin = customer?.gstin ?? typedGstin;
+
     // GST place of supply: intra-state (CGST + SGST) or inter-state (IGST).
     const shopState = settings.stateCode;
-    const pos = input.placeOfSupply ?? (customer?.gstin ? (stateFromGstin(customer.gstin) ?? shopState) : shopState);
+    const pos = input.placeOfSupply ?? (gstin ? (stateFromGstin(gstin) ?? shopState) : shopState);
     const supply: SupplyType = pos === shopState ? 'intra' : 'inter';
 
     const totals = calcBill(
@@ -325,10 +333,13 @@ async function saveInvoice(
     // GST invoice rules.
     const recipientName = customer?.name ?? (input.customerName?.trim() || null);
     const recipientAddress = customer?.address ?? (input.customerAddress?.trim() || null);
+    if (typedGstin && !customer?.gstin && !recipientAddress) {
+      throw new AppError(400, 'B2B_NEEDS_ADDRESS', 'A bill with the customer’s GST number needs their name and address too.');
+    }
     if (customer?.gstin && !customer.address) {
       throw new AppError(400, 'B2B_NEEDS_ADDRESS', `${customer.name} is a registered business (GSTIN ${customer.gstin}). Add their address in Customers — it must be on the GST bill.`);
     }
-    if (!customer?.gstin && totals.totalPaise >= B2C_DETAILS_THRESHOLD_PAISE && (!recipientName || !recipientAddress)) {
+    if (!gstin && totals.totalPaise >= B2C_DETAILS_THRESHOLD_PAISE && (!recipientName || !recipientAddress)) {
       throw new AppError(400, 'B2C_NEEDS_DETAILS', 'For a bill of ₹50,000 or more, GST rules need the customer’s name and address. Choose the customer or type the name and address.');
     }
 
@@ -387,7 +398,7 @@ async function saveInvoice(
         cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, voucher_id, notes, user_id, device_id, client_ref)
       values (${id}, ${number}, ${fy}, ${seq}, ${date}, ${at}, ${customer?.id ?? null},
         ${recipientName}, ${customer?.phone ?? (input.customerPhone?.trim() || null)},
-        ${customer?.gstin ?? null}, ${recipientAddress}, ${supply}, ${pos}, ${input.paymentMode}, ${totals.grossPaise},
+        ${gstin}, ${recipientAddress}, ${supply}, ${pos}, ${input.paymentMode}, ${totals.grossPaise},
         ${totals.discountPaise}, ${totals.taxablePaise}, ${totals.cgstPaise}, ${totals.sgstPaise}, ${totals.igstPaise},
         ${totals.roundOffPaise}, ${totals.totalPaise}, ${voucherId}, ${input.notes?.trim() || null}, ${ctx.userId},
         ${ctx.deviceId}, ${input.clientRef ?? null})`;

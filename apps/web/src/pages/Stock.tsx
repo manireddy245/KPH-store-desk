@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatPaise, formatQty, parseQty } from '@kph/core';
-import { ApiError, download, get, patch, post } from '../lib/api';
+import { ApiError, del, download, get, patch, post } from '../lib/api';
+import type { ProductRow } from '../lib/types';
 import { fmtDate, fmtDateTime } from '../lib/format';
 import { useSession } from '../lib/session';
 import { Page } from '../components/Layout';
@@ -65,14 +66,15 @@ const MOVE: Record<string, { label: string; tone: 'good' | 'neutral' | 'warn' | 
 };
 const ACTIONS: Record<string, string> = { dont_reorder: "Don't reorder", offer: 'Run an offer', tell_partners: 'Tell painters / masons', return_to_supplier: 'Return to supplier', keep: 'Keep as is' };
 
-type Tab = 'reorder' | 'slow' | 'all' | 'orders' | 'count';
+type Tab = 'reorder' | 'tolist' | 'slow' | 'all' | 'orders' | 'count';
 
 export function Stock() {
   const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') as Tab) || 'reorder';
-  const ins = useQuery({ queryKey: ['stock', 'insights'], queryFn: () => get<Insights>('/api/insights/stock'), enabled: tab !== 'count' && tab !== 'orders' });
+  const ins = useQuery({ queryKey: ['stock', 'insights'], queryFn: () => get<Insights>('/api/insights/stock'), enabled: tab !== 'count' && tab !== 'orders' && tab !== 'tolist' });
   const TABS: [Tab, string][] = [
     ['reorder', 'Reorder'],
+    ['tolist', 'To order'],
     ['slow', 'Slow & dead'],
     ['all', 'All items'],
     ['orders', 'Purchase orders'],
@@ -89,6 +91,7 @@ export function Stock() {
         ))}
       </nav>
       {(tab === 'reorder' || tab === 'slow' || tab === 'all') && (!ins.data ? ins.error ? <Notice tone="bad">{errText(ins.error)}</Notice> : <Spinner /> : tab === 'reorder' ? <Reorder d={ins.data} /> : tab === 'slow' ? <Slow d={ins.data} /> : <AllItems d={ins.data} />)}
+      {tab === 'tolist' && <ToOrderList />}
       {tab === 'orders' && <Orders />}
       {tab === 'count' && <Counts />}
     </Page>
@@ -347,6 +350,150 @@ interface PO {
   supplier_name: string;
   supplier_phone: string | null;
   items: number;
+}
+
+interface OrderItem {
+  id: number;
+  product_id: number | null;
+  item_text: string;
+  qty_milli: number | null;
+  unit_code: string | null;
+  note: string | null;
+  created_at: string;
+  created_by_name: string | null;
+  ordered_at: string | null;
+  ordered_by_name: string | null;
+  stock_milli: number | null;
+}
+
+/** A notepad of things to buy: tick "Ordered" and the item moves to the ordered list. */
+function ToOrderList() {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const list = useQuery({ queryKey: ['stock', 'order-list'], queryFn: () => get<{ toOrder: OrderItem[]; ordered: OrderItem[] }>('/api/order-list') });
+  const products = useQuery({ queryKey: ['products', 'all-active'], queryFn: () => get<ProductRow[]>('/api/products') });
+  const goods = useMemo(() => (products.data ?? []).filter((p) => p.active && !p.is_service), [products.data]);
+  const [item, setItem] = useState('');
+  const [qty, setQty] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const match = goods.find((p) => p.name.toLowerCase() === item.trim().toLowerCase());
+  const refresh = () => qc.invalidateQueries({ queryKey: ['stock', 'order-list'] });
+  const fail = (e: unknown) => toast({ tone: 'bad', text: e instanceof ApiError ? e.message : 'Could not save' });
+
+  const add = async () => {
+    const q = qty.trim() ? parseQty(qty) : null;
+    if (qty.trim() && (q == null || q <= 0)) return toast({ tone: 'bad', text: 'Quantity is not a valid number' });
+    setBusy(true);
+    try {
+      await post('/api/order-list', { productId: match?.id ?? null, itemText: item, qtyMilli: q, note: note || null });
+      setItem('');
+      setQty('');
+      setNote('');
+      await refresh();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const ordered = (r: OrderItem, v: boolean) => post(`/api/order-list/${r.id}/ordered`, { ordered: v }).then(refresh, fail);
+  const remove = (r: OrderItem) => {
+    if (confirm(`Delete "${r.item_text}" from the list?`)) void del(`/api/order-list/${r.id}`).then(refresh, fail);
+  };
+  const qtyOf = (r: OrderItem) => (r.qty_milli != null ? `${formatQty(r.qty_milli)} ${r.unit_code ?? ''}` : '');
+
+  return (
+    <div className="flex flex-col gap-4">
+      <form
+        className="grid gap-2 rounded-[6px] border border-line bg-white p-3 sm:grid-cols-[minmax(0,2fr)_120px_minmax(0,1.5fr)_auto]"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (item.trim().length >= 2) void add();
+        }}
+      >
+        <Field label="Item" hint={match ? `In stock: ${formatQty(match.qty_milli ?? 0)} ${match.unit_code}` : 'Pick a product, or type anything'}>
+          <Input list="order-list-products" value={item} onChange={(e) => setItem(e.target.value)} placeholder="e.g. 12 mm TMT bar" />
+        </Field>
+        <Field label={`Qty${match ? ` (${match.unit_code})` : ''}`}>
+          <Input inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="optional" />
+        </Field>
+        <Field label="Note">
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional, e.g. ask JSW dealer" />
+        </Field>
+        <div className="flex items-end">
+          <Button type="submit" variant="primary" busy={busy} disabled={item.trim().length < 2} className="h-10 w-full">
+            Add to list
+          </Button>
+        </div>
+        <datalist id="order-list-products">
+          {goods.map((p) => (
+            <option key={p.id} value={p.name} />
+          ))}
+        </datalist>
+      </form>
+
+      <section className="overflow-hidden rounded-[6px] border border-line bg-white">
+        <h2 className="border-b border-line px-4 py-3 text-[15px] font-bold">To order ({list.data?.toOrder.length ?? 0})</h2>
+        {!list.data ? (
+          <div className="p-4">
+            <Spinner />
+          </div>
+        ) : list.data.toOrder.length === 0 ? (
+          <Empty>Nothing on the list. Add items above.</Empty>
+        ) : (
+          <ul>
+            {list.data.toOrder.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-3 border-t border-line-3 px-4 py-2.5 first:border-t-0">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold">
+                    {r.item_text} {qtyOf(r) && <span className="num font-bold text-brick">· {qtyOf(r)}</span>}
+                  </div>
+                  <div className="text-xs text-ink-3">
+                    {[r.note, r.stock_milli != null && `in stock ${formatQty(r.stock_milli)} ${r.unit_code ?? ''}`, `added by ${r.created_by_name ?? '—'} · ${fmtDateTime(r.created_at)}`].filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+                <Button variant="primary" onClick={() => void ordered(r, true)}>
+                  Ordered ✓
+                </Button>
+                <Button variant="ghost" onClick={() => remove(r)}>
+                  Delete
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="overflow-hidden rounded-[6px] border border-line bg-white">
+        <h2 className="border-b border-line px-4 py-3 text-[15px] font-bold">Ordered ({list.data?.ordered.length ?? 0})</h2>
+        {list.data && list.data.ordered.length === 0 ? (
+          <Empty>Items you mark “Ordered” show here (last 90 days).</Empty>
+        ) : (
+          <ul>
+            {list.data?.ordered.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-3 border-t border-line-3 px-4 py-2.5 first:border-t-0">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-ink-2">
+                    ✓ {r.item_text} {qtyOf(r) && <span className="num">· {qtyOf(r)}</span>}
+                  </div>
+                  <div className="text-xs text-ink-3">
+                    {[r.note, `ordered by ${r.ordered_by_name ?? '—'}${r.ordered_at ? ` · ${fmtDateTime(r.ordered_at)}` : ''}`].filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+                <Button variant="ghost" onClick={() => void ordered(r, false)}>
+                  Move back
+                </Button>
+                <Button variant="ghost" onClick={() => remove(r)}>
+                  Delete
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
 }
 
 function Orders() {

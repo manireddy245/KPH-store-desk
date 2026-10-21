@@ -10,7 +10,8 @@
     "typecheck": "tsc -p .",
     "db:reset-sample": "tsx src/cli.ts reset-sample",
     "backup": "tsx src/cli.ts backup",
-    "restore": "tsx src/cli.ts restore"
+    "restore": "tsx src/cli.ts restore",
+    "clear-books": "tsx src/cli.ts clear-books"
   },
   "dependencies": {
     "@fastify/static": "^9.3.0",

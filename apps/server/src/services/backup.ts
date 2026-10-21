@@ -19,7 +19,7 @@ export const BACKUP_TABLES = [
   'assistant_messages', 'invoice_transport', 'invoice_details', 'money_entries', 'payment_allocations', 'cash_closings',
   'partner_types', 'partner_reward_rules', 'partners', 'partner_sites', 'invoice_partners', 'partner_rewards', 'partner_notes', 'paint_shades',
   'quotations', 'quotation_lines', 'deliveries', 'delivery_lines',
-  'stock_audits', 'stock_audit_lines', 'stock_decisions', 'purchase_orders', 'purchase_order_lines', 'counter_closings',
+  'stock_audits', 'stock_audit_lines', 'stock_decisions', 'purchase_orders', 'purchase_order_lines', 'order_list', 'counter_closings',
   'daily_summaries',
   'tally_names', 'tally_exports',
   'receipt_allocations', 'reminders',

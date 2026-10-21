@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { formatQty, istDate } from '@kph/core';
 import { workbook } from '../services/exports.js';
+import { addToOrderList, deleteOrderItem, listOrderList, markOrdered } from '../services/orderlist.js';
 import {
   closeAudit,
   closeCounter,
@@ -27,6 +28,17 @@ const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const MOVE: Record<string, string> = { fast: 'Fast', normal: 'Normal', slow: 'Slow', dead: 'Dead stock', new: 'New' };
 
 export async function registerStockRoutes(app: FastifyInstance, { db, live }: Shared) {
+  // ---------------------------------------------------------------- "to order" list
+  app.get('/api/order-list', async (req) => listOrderList(db.app, ctxOf(req)));
+  app.post('/api/order-list', async (req) => {
+    const b = z
+      .object({ productId: z.number().int().positive().nullable().optional(), itemText: z.string().max(200).optional(), qtyMilli: z.number().int().positive().nullable().optional(), unitCode: z.string().max(20).nullable().optional(), note: z.string().max(300).nullable().optional() })
+      .parse(req.body);
+    return addToOrderList(db.app, ctxOf(req), b);
+  });
+  app.post('/api/order-list/:id/ordered', async (req) => markOrdered(db.app, ctxOf(req), z.object({ id }).parse(req.params).id, z.object({ ordered: z.boolean() }).parse(req.body).ordered));
+  app.delete('/api/order-list/:id', async (req) => deleteOrderItem(db.app, ctxOf(req), z.object({ id }).parse(req.params).id));
+
   // ---------------------------------------------------------------- insights
   app.get('/api/insights/stock', async (req, reply) => {
     const q = z.object({ format: z.enum(['json', 'xlsx']).optional() }).parse(req.query);

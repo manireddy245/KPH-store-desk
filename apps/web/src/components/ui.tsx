@@ -207,6 +207,10 @@ export function Modal({
   dark?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Callers pass a new onClose on every render. Read it through a ref so typing in the box
+  // doesn't re-run the focus code below (which moved the cursor away after one letter).
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const prev = document.activeElement as HTMLElement | null;
@@ -217,7 +221,7 @@ export function Modal({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        closeRef.current();
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -226,7 +230,7 @@ export function Modal({
       window.removeEventListener('keydown', onKey, true);
       prev?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto bg-ink/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

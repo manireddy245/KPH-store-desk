@@ -17,7 +17,8 @@ interface Store {
   labels: 'en' | 'te-en';
 }
 
-function Letterhead({ store, title, telugu, sub }: { store: Store; title: string; telugu?: string; sub: string }) {
+/** noGstin: quotations don't show the shop's GST number (owner's choice). */
+function Letterhead({ store, title, telugu, sub, noGstin }: { store: Store; title: string; telugu?: string; sub: string; noGstin?: boolean }) {
   const name = /^(\S+)\s+(.*)$/.exec(store.name);
   return (
     <div className="flex items-start justify-between gap-5 border-b-[3px] border-brick pb-3.5">
@@ -34,7 +35,7 @@ function Letterhead({ store, title, telugu, sub }: { store: Store; title: string
         <div className="text-[9pt] leading-[1.45] text-ink-2">
           {store.address}
           {store.phone && <> · Phone {store.phone}</>}
-          {store.gstin && <> · GSTIN {store.gstin}</>}
+          {store.gstin && !noGstin && <> · GSTIN {store.gstin}</>}
         </div>
       </div>
       <div className="text-right">
@@ -97,7 +98,7 @@ export function QuotePrint() {
   const rs = (p: number) => formatPaise(p);
   return (
     <Sheet doc={d.number}>
-      <Letterhead store={d.store} title={d.template === 'full_house' ? 'ESTIMATE' : 'QUOTATION'} telugu="అంచనా" sub={`${d.number} · ${fmtDate(d.quote_date)}`} />
+      <Letterhead store={d.store} title={d.template === 'full_house' ? 'ESTIMATE' : 'QUOTATION'} telugu="అంచనా" sub={`${d.number} · ${fmtDate(d.quote_date)}`} noGstin />
       <div className="flex justify-between gap-4">
         <div>
           <div className="text-[11pt] font-bold">{d.display_name ?? '—'}</div>

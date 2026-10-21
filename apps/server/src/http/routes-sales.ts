@@ -29,6 +29,7 @@ export async function registerSalesRoutes(app: FastifyInstance, { db, live }: Sh
         customerName: z.string().max(100).optional(),
         customerPhone: z.string().max(20).optional(),
         customerAddress: z.string().max(300).optional(),
+        customerGstin: z.string().max(20).optional(),
         placeOfSupply: z.string().regex(/^\d{2}$/).optional(),
         paymentMode: z.enum(['cash', 'upi', 'card', 'credit']),
         notes: z.string().max(500).optional(),

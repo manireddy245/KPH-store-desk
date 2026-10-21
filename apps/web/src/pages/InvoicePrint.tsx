@@ -516,9 +516,10 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
         </tfoot>
       </table>
       {hasIncl && <div className={cx('-mt-1.5 text-[10px]', MUTED)}>* rate includes GST</div>}
+      <div className={cx('text-center text-[10px] font-semibold tracking-[.24em]', MUTED)}>— END OF LIST —</div>
 
-      {/* words + totals */}
-      <div className="flex items-start justify-between gap-7">
+      {/* words + totals: at the bottom of the page, just above the signature */}
+      <div className="mt-auto flex items-start justify-between gap-7 border-t border-[#e4e0d8] pt-3">
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div>
             <div className={cx('text-[12px]', MUTED)}>{L('Amount in words')}</div>
@@ -559,7 +560,7 @@ function Sheet({ d, copyLabel }: { d: Doc; copyLabel: string }) {
       </div>
 
       {/* terms + signature */}
-      <div className="mt-auto flex items-end justify-between gap-7 border-t border-[#e4e0d8] pt-3">
+      <div className="flex items-end justify-between gap-7 border-t border-[#e4e0d8] pt-3">
         <div className="max-w-[400px] text-[12px] leading-[1.5] text-ink-2">
           {isInvoice && d.store.terms && (
             <>
