@@ -13,6 +13,7 @@ export interface Tile {
 export interface Boot {
   workspace: 'sample' | 'live';
   setupNeeded: boolean;
+  setupCodeNeeded?: boolean;
   store: { name: string };
   device: { id: number; name: string; status: 'pending' | 'approved' | 'revoked' } | null;
   users: Tile[];

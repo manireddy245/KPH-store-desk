@@ -10,6 +10,9 @@ import { homedir } from 'node:os';
  *  KPH_PORT         web/API port (default 4000)
  *  KPH_HOST         listen address (default 0.0.0.0 so other counters on the LAN can connect)
  *  KPH_PG_PORT      port for the built-in PostgreSQL (default 54329)
+ *  KPH_PUBLIC       1 on a cloud server open to the internet: first-time setup needs a one-time code
+ *                   (printed in the server log), approving a device with a PIN needs a 6-digit admin
+ *                   PIN and wrong tries are limited for the whole server
  *  KPH_PG_OWNER_URL / KPH_PG_APP_URL_TEMPLATE
  *                   use an external PostgreSQL instead of the built-in one. The template
  *                   contains {db}, e.g. postgres://storedesk_app:secret@localhost:5432/{db}
@@ -36,6 +39,9 @@ export function loadConfig(env = process.env): Config {
     webDist: env.KPH_WEB_DIST ?? join(import.meta.dirname, '..', '..', 'web', 'dist'),
   };
 }
+
+/** Running on the open internet (cloud server)? */
+export const isPublic = (env = process.env) => env.KPH_PUBLIC === '1';
 
 export type WorkspaceName = 'sample' | 'live';
 export const DB_NAMES: Record<WorkspaceName, string> = {

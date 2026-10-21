@@ -78,14 +78,16 @@ function useAsync() {
 }
 
 function Setup() {
-  const { reload } = useSession();
+  const { reload, boot } = useSession();
+  const codeNeeded = !!boot?.setupCodeNeeded;
+  const [setupCode, setSetupCode] = useState('');
   const [storeName, setStoreName] = useState('Kanakapatnam Paints and Hardwares');
   const [adminName, setAdminName] = useState('');
   const [pin, setPin] = useState('');
   const [pin2, setPin2] = useState('');
   const [deviceName, setDeviceName] = useState('Office');
   const { busy, error, run } = useAsync();
-  const valid = adminName.trim().length >= 2 && /^\d{4,8}$/.test(pin) && pin === pin2 && deviceName.trim().length >= 2;
+  const valid = adminName.trim().length >= 2 && /^\d{4,8}$/.test(pin) && pin === pin2 && deviceName.trim().length >= 2 && (!codeNeeded || setupCode.length === 8);
   return (
     <Shell>
       <form
@@ -93,7 +95,7 @@ function Setup() {
         onSubmit={(e) => {
           e.preventDefault();
           void run(async () => {
-            const r = await post<{ deviceToken: string; token: string }>('/api/setup', { storeName, adminName, pin, deviceName });
+            const r = await post<{ deviceToken: string; token: string }>('/api/setup', { storeName, adminName, pin, deviceName, setupCode: codeNeeded ? setupCode : undefined });
             store.deviceToken = r.deviceToken;
             store.sessionToken = r.token;
             await reload();
@@ -105,6 +107,11 @@ function Setup() {
           <h1 className="headline text-3xl">Set up the shop</h1>
           <p className="mt-1 text-sm text-ink-3">This creates the owner (admin) account and registers this computer.</p>
         </div>
+        {codeNeeded && (
+          <Field label="Setup code" hint="8 digits, printed in the server log">
+            <Input inputMode="numeric" value={setupCode} onChange={(e) => setSetupCode(e.target.value.replace(/\D/g, '').slice(0, 8))} />
+          </Field>
+        )}
         <Field label="Shop name">
           <Input value={storeName} onChange={(e) => setStoreName(e.target.value)} />
         </Field>
