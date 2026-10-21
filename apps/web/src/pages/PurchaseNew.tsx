@@ -79,6 +79,10 @@ const rs = (p: number | null | undefined) => (p == null ? '' : formatPaise(p).re
 const emptyLine = (): LineDraft => ({ key: uuid(), description: '', hsn: '', billUnit: null, qtyText: '', amountText: '', gstText: '18', productId: null, newProduct: null, match: 'manual', lastCostCp: null, warnings: [] });
 const emptyDraft = (): Draft => ({ clientRef: uuid(), scanId: null, pageCount: 0, supplierId: null, supplierRead: null, billNo: '', billDate: todayIst(), supplyType: 'intra', freightText: '', billTotalText: '', notes: '', scanNotes: null, duplicateOf: null, lines: [emptyLine()] });
 
+/** Has anything been scanned or typed into this purchase? */
+const hasContent = (d: Draft) =>
+  d.scanId != null || !!d.supplierId || !!d.billNo.trim() || !!d.freightText || !!d.billTotalText || !!d.notes.trim() || d.lines.some((l) => l.description.trim() || l.productId || l.qtyText || l.amountText);
+
 const UNIT_ALIASES: Record<string, string> = { bags: 'bag', bag: 'bag', nos: 'nos', no: 'nos', pcs: 'pcs', pc: 'pcs', kg: 'kg', kgs: 'kg', ton: 'tonne', tons: 'tonne', mt: 'tonne', mts: 'tonne',tonne: 'tonne', ea: 'nos', each: 'nos', piece: 'pcs', pieces: 'pcs', ltr: 'ltr', l: 'ltr', litre: 'ltr', ltrs: 'ltr', mtr: 'mtr', m: 'mtr', coil: 'coil', coils: 'coil', box: 'box', set: 'set', sets: 'set', rod: 'rod', rods: 'rod', bundle: 'bundle', bundles: 'bundle', tin: 'tin', tins: 'tin', bucket: 'bucket', length: 'length', lengths: 'length', ft: 'ft' };
 const unitCode = (u: string | null) => (u ? (UNIT_ALIASES[u.toLowerCase().replace(/[^a-z]/g, '')] ?? null) : null);
 
@@ -97,7 +101,8 @@ export function PurchaseNew() {
   const [draft, setDraft] = useState<Draft | null>(() => {
     try {
       const raw = localStorage.getItem(draftKey);
-      if (raw) return JSON.parse(raw) as Draft;
+      const saved = raw ? (JSON.parse(raw) as Draft) : null;
+      if (saved && hasContent(saved)) return saved;
     } catch {
       /* ignore */
     }
@@ -105,7 +110,8 @@ export function PurchaseNew() {
   });
   useEffect(() => {
     try {
-      if (draft) localStorage.setItem(draftKey, JSON.stringify(draft));
+      // an untouched "enter by hand" form is not kept: "Scan supplier bill" must open the scanner next time
+      if (draft && hasContent(draft)) localStorage.setItem(draftKey, JSON.stringify(draft));
       else localStorage.removeItem(draftKey);
     } catch {
       /* ignore */
@@ -207,6 +213,9 @@ export function PurchaseNew() {
                 ))}
               </Select>
             </Field>
+            {boot?.settings.hasGeminiKey === false && (
+              <Notice tone="warn">The scanner needs a Gemini API key. Admin can add it in Settings → Shop & billing.</Notice>
+            )}
             {readError && <Notice tone="bad">{readError}</Notice>}
             <Button variant="primary" size="lg" disabled={!pages.length} busy={reading} onClick={read} className="font-extrabold tracking-[.04em]">
               {reading ? 'READING THE BILL…' : `READ THE BILL${pages.length ? ` · ${pages.length} PAGE${pages.length > 1 ? 'S' : ''}` : ''}`}
