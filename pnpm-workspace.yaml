@@ -6,3 +6,4 @@ onlyBuiltDependencies:
   - esbuild
   - embedded-postgres
   - '@embedded-postgres/windows-x64'
+  - '@embedded-postgres/linux-x64'
