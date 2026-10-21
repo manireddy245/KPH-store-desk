@@ -68,7 +68,7 @@ export function GstDetailsFields({
     try {
       const r = await get<{ details: Omit<GstInfo, 'checked'> | null; lookup: 'off' | 'done' }>(`/api/gstin/${decoded.gstin}`);
       if (r.lookup === 'off' || !r.details) {
-        setMsg({ tone: 'warn', text: 'The GST lookup service is not set up yet (Settings → Shop & billing). Type the details from their bill or the GST portal.' });
+        setMsg({ tone: 'warn', text: 'No details came back. Type them from their bill or the GST portal.' });
         return;
       }
       const d = r.details;

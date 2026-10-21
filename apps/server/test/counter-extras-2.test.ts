@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { decodeGstin } from '@kph/core';
-import { parseTaxpayer } from '../src/services/gstlookup.js';
+import { lookupGstin, parseTally, parseTaxpayer } from '../src/services/gstlookup.js';
 import { makeHarness } from './harness.js';
 
 let h: Awaited<ReturnType<typeof makeHarness>>;
@@ -51,10 +51,15 @@ describe('GST details', () => {
     expect(parseTaxpayer({ error: 'not found' })).toBeNull();
   });
 
-  it('with no lookup service set up, the GSTIN is still read offline', async () => {
+  it('fetches from the free Tally GSTIN search when no service is set in Settings', async () => {
+    const tally = JSON.stringify({ status: 1, legal_name: 'KANAKAPATNAM PAINTS AND HARDWARE', trade_name: 'KANAKAPATNAM PAINTS AND HARDWARE', registration_type: 'Regular', gstin_status: 'Active', business_constitution: 'Proprietorship', address: 'Trunk Road,KAVALI,10-15-35/G23-F23,Sri Potti Sriramulu Nellore', pincode: '524201' });
+    const calls: { url: string; body?: string }[] = [];
+    const fake = async (url: string, init?: { body?: string }) => (calls.push({ url, body: init?.body }), { ok: true, status: 200, text: async () => tally });
+    const r = await lookupGstin(h.app, h.ctx('admin'), '37dzmpm4249d1z3', fake);
+    expect(calls[0]).toEqual({ url: expect.stringContaining('tallysolutions.com'), body: 'gstin=37DZMPM4249D1Z3' });
+    expect(r.details).toEqual({ legalName: 'KANAKAPATNAM PAINTS AND HARDWARE', tradeName: 'KANAKAPATNAM PAINTS AND HARDWARE', type: 'Regular', status: 'Active', constitution: 'Proprietorship', address: 'Trunk Road,KAVALI,10-15-35/G23-F23,Sri Potti Sriramulu Nellore - 524201' });
+    expect(parseTally('{"status": 0, "message": "invalid GSTIN"}')).toBeNull();
     const admin = await h.loginAs('admin');
-    const r = await admin.get('/api/gstin/37ABCDE1234F1ZZ');
-    expect(r.body).toMatchObject({ lookup: 'off', details: null, decoded: { pan: 'ABCDE1234F' } });
     expect((await admin.get('/api/gstin/37ABCDE1234F1Z5')).body.code).toBe('BAD_GSTIN');
   });
 

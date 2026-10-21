@@ -273,7 +273,7 @@ function StoreSettings() {
           <Field label="Gemini API key (invoice scanner and assistant)" hint={q.data.geminiApiKeySet ? 'A key is saved. Type a new one to replace it.' : 'Not set. Kept on this server only; never included in backups.'} className="sm:col-span-2">
             <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
           </Field>
-          <Field label="GST number lookup — service address" hint="Fills a customer's legal name, trade name, Regular / Composition and status from their GSTIN. Paste the address your GST lookup provider gives, with {gstin} (and {key}) in it. Blank = off." className="sm:col-span-2">
+          <Field label="GST number lookup — service address" hint="Fills a customer's legal name, trade name, Regular / Composition and status from their GSTIN. Leave blank to use the free GSTIN search on Tally’s website (works now, no key). Only if that stops working: paste a paid lookup service’s address here, with {gstin} (and {key}) in it." className="sm:col-span-2">
             <Input value={String(f.gstLookupUrl ?? '')} onChange={t('gstLookupUrl')} placeholder="https://…/{key}/{gstin}" />
           </Field>
           <Field label="GST lookup key" hint={q.data.gstLookupKeySet ? 'A key is saved. Type a new one to replace it.' : 'Not set. Kept on this server only; never included in backups.'} className="sm:col-span-2">
