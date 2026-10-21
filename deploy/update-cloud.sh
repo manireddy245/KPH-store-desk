@@ -12,7 +12,7 @@ sudo -u storedesk -H pnpm install --frozen-lockfile
 sudo -u storedesk -H pnpm build
 systemctl restart storedesk
 for i in $(seq 1 60); do
-  curl -fsS http://127.0.0.1:4000/api/bootstrap >/dev/null 2>&1 && { echo "Store Desk is running: $(git log --oneline -1)"; exit 0; }
+  curl -fsS http://127.0.0.1:4000/api/bootstrap >/dev/null 2>&1 && { echo "Store Desk is running: $(sudo -u storedesk git log --oneline -1)"; exit 0; }
   sleep 2
 done
 echo "Store Desk did not come back — see: journalctl -u storedesk -n 50"
