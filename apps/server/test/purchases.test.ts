@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { istDate } from '@kph/core';
 import type { ReadBill } from '../src/services/scanner.js';
 import { makeHarness } from './harness.js';
 
@@ -59,6 +60,19 @@ describe('entering a purchase', () => {
     expect(v!.dr).toBe(v!.cr);
     const [alias] = await h.app`select product_id from product_aliases where supplier_id = ${supplierId} and alias = 'ultratech ppc 50kg'`;
     expect(alias!.product_id).toBe(p);
+  });
+
+  it('an older supplier bill entered today shows in the list for this period', async () => {
+    const p = await h.product({ qty: 0, cost: 28000 });
+    const r = await admin.post('/api/purchases', bill({ supplierInvoiceDate: '2026-08-14', lines: [{ productId: p, qtyMilli: 10_000, taxablePaise: 280_000, gstRateBp: 1800 }] }));
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const today = istDate();
+    const from = istDate(new Date(Date.now() - 30 * 86400000));
+    const listed = (await admin.get(`/api/purchases?from=${from}&to=${today}`)).body as { id: number }[];
+    expect(listed.map((x) => x.id)).toContain(r.body.id);
+    // and still found by its own bill date
+    const byBillDate = (await admin.get(`/api/purchases?from=2026-08-01&to=2026-08-31`)).body as { id: number }[];
+    expect(byBillDate.map((x) => x.id)).toContain(r.body.id);
   });
 
   it('refuses the same supplier bill twice, and stock is not added again', async () => {

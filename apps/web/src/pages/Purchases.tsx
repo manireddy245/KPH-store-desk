@@ -55,7 +55,7 @@ export function Purchases() {
         }
       />
       <div className="flex flex-wrap items-end gap-2">
-        <Field label="Bill date from">
+        <Field label="Bill or entry date from">
           <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </Field>
         <Field label="To">

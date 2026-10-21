@@ -297,8 +297,12 @@ export async function listPurchases(q: Q, f: { from?: string; to?: string; suppl
            s.name as supplier_name, u.name as user_name, d.name as device_name,
            (select count(*)::int from purchase_lines l where l.purchase_id = p.id) as item_count
     from purchase_invoices p join suppliers s on s.id = p.supplier_id join users u on u.id = p.user_id left join devices d on d.id = p.device_id
-    where (${f.from ?? null}::date is null or p.supplier_invoice_date >= ${f.from ?? null}::date)
-      and (${f.to ?? null}::date is null or p.supplier_invoice_date <= ${f.to ?? null}::date)
+    -- in the period by the supplier's bill date OR by the day it was entered here,
+    -- so an older supplier bill entered today still shows up
+    where (((${f.from ?? null}::date is null or p.supplier_invoice_date >= ${f.from ?? null}::date)
+            and (${f.to ?? null}::date is null or p.supplier_invoice_date <= ${f.to ?? null}::date))
+        or ((${f.from ?? null}::date is null or (p.at at time zone 'Asia/Kolkata')::date >= ${f.from ?? null}::date)
+            and (${f.to ?? null}::date is null or (p.at at time zone 'Asia/Kolkata')::date <= ${f.to ?? null}::date)))
       and (${f.supplierId ?? null}::int is null or p.supplier_id = ${f.supplierId ?? null})
       and (${search}::text is null or lower(p.number) like ${search} or lower(p.supplier_invoice_no) like ${search} or lower(s.name) like ${search})
     order by p.id desc limit 500`;
