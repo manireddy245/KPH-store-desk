@@ -135,10 +135,31 @@ export const GEMINI_RETRY_WAITS_MS = [2000, 5000];
  * giving up. Errors become plain messages.
  */
 export async function postGemini(apiKey: string, model: string, body: unknown, timeoutMs = 120_000): Promise<string> {
+  // Each model has its own free daily allowance: when the chosen one is used up (or retired),
+  // the next one is tried, so a busy day doesn't stop the scanner.
+  const models = [model, ...GEMINI_FALLBACK_MODELS.filter((m) => m !== model)];
+  let last: unknown;
+  for (const m of models) {
+    try {
+      return await postGeminiRetrying(apiKey, m, body, timeoutMs);
+    } catch (e) {
+      last = e;
+      if (!(e instanceof AppError) || !['SCANNER_BUSY', 'SCANNER_MODEL'].includes(e.code)) throw e;
+    }
+  }
+  throw last;
+}
+
+/** Tried in turn when the chosen model's free limit is used up (2026: these all read bills well). */
+export const GEMINI_FALLBACK_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.7-flash'];
+
+async function postGeminiRetrying(apiKey: string, model: string, body: unknown, timeoutMs: number): Promise<string> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await postGeminiOnce(apiKey, model, body, timeoutMs);
     } catch (e) {
+      // a used-up daily limit won't come back in seconds: move on to the next model at once
+      if (e instanceof AppError && e.code === 'SCANNER_BUSY' && e.dailyLimit) throw e;
       const wait = GEMINI_RETRY_WAITS_MS[attempt];
       if (!(e instanceof AppError) || !e.retryable || wait == null) throw e;
       await new Promise((r) => setTimeout(r, wait));
@@ -171,7 +192,11 @@ async function postGeminiOnce(apiKey: string, model: string, body: unknown, time
     if (res.status === 400 && /api key/i.test(msg)) throw new AppError(400, 'SCANNER_KEY', 'The Gemini API key is not valid. Check it in Settings → Shop & billing.');
     if (res.status === 403) throw new AppError(400, 'SCANNER_KEY', 'The Gemini API key was refused. Check it in Settings → Shop & billing.');
     if (res.status === 404) throw new AppError(400, 'SCANNER_MODEL', `The Gemini model "${model}" is not available. Change it in Settings → Shop & billing.`);
-    if (res.status === 429) throw retryable(new AppError(429, 'SCANNER_BUSY', 'Google Gemini is busy or the free limit is used up. Try again in a minute.'));
+    if (res.status === 429) {
+      const e = retryable(new AppError(429, 'SCANNER_BUSY', "Google Gemini's free limit is used up on every model we tried. Try again in a minute; if it keeps happening, the daily limit resets around 12:30 pm, or turn on billing for the Gemini key."));
+      e.dailyLimit = /quota|billing/i.test(msg);
+      throw e;
+    }
     if (res.status === 503 || res.status === 500 || res.status === 504)
       throw retryable(new AppError(503, 'GEMINI_BUSY', "Google Gemini is overloaded right now (a problem on Google's side, not your shop or key). Try again in a minute."));
     throw new AppError(502, 'SCANNER_ERROR', `Google Gemini could not handle this (${res.status}): ${msg.slice(0, 200)}`);

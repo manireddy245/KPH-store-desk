@@ -16,6 +16,8 @@ export function can(ctx: Ctx, p: Permission) {
 export class AppError extends Error {
   /** A passing problem (service busy): worth trying again. */
   retryable = false;
+  /** Google said the quota is used up (not just busy): retrying the same model won't help. */
+  dailyLimit = false;
   constructor(
     public status: number,
     public code: string,
