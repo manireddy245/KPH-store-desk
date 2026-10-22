@@ -385,6 +385,20 @@ function InlineCategory({ p, categories }: { p: ProductRow; categories: Category
   );
 }
 
+/** "UltraTech" + "PPC 50 kg" → "UltraTech PPC 50 kg" (not doubled if the name already starts with the brand). */
+export function fullName(brand: string | undefined, name: string | undefined) {
+  const b = brand?.trim() ?? '';
+  const n = name?.trim() ?? '';
+  if (!b) return n;
+  return n.toLowerCase().startsWith(b.toLowerCase()) ? n : `${b} ${n}`.trim();
+}
+
+/** The name without its brand at the start, for the "Name (after the brand)" box. */
+function withoutBrand(name: string, brand: string | null | undefined) {
+  if (!brand || !name.toLowerCase().startsWith(brand.toLowerCase() + ' ')) return name;
+  return name.slice(brand.length + 1);
+}
+
 function ProductForm({ open, product, categories, onClose }: { open: boolean; product: ProductRow | null; categories: Category[]; onClose: () => void }) {
   const { can } = useSession();
   const qc = useQueryClient();
@@ -405,7 +419,8 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
       product
         ? {
             sku: product.sku,
-            name: product.name,
+            // the brand is shown in its own box, so the name box holds the rest
+            name: withoutBrand(product.name, product.brand_name),
             categoryId: product.category_id ? String(product.category_id) : '',
             brand: product.brand_name ?? '',
             unitCode: product.unit_code,
@@ -453,7 +468,7 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
     setError(null);
     const money = (s: string | undefined) => (s?.trim() ? parseRupees(s) : null);
     const body: Record<string, unknown> = {
-      name: f.name,
+      name: fullName(f.brand, f.name),
       categoryId: f.categoryId ? Number(f.categoryId) : null,
       brandName: f.brand?.trim() || undefined,
       unitCode: f.unitCode,
@@ -560,8 +575,16 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
           void submit();
         }}
       >
-        <Field label="Product name" className="sm:col-span-2">
-          <Input value={f.name ?? ''} onChange={set('name')} autoFocus />
+        <Field label="Brand" hint="Becomes the start of the name">
+          <Input value={f.brand ?? ''} onChange={set('brand')} list="brand-list" autoFocus placeholder="e.g. UltraTech" />
+          <datalist id="brand-list">
+            {(brands.data ?? []).map((b) => (
+              <option key={b.id} value={b.name} />
+            ))}
+          </datalist>
+        </Field>
+        <Field label={f.brand?.trim() ? 'Name (after the brand)' : 'Product name'} hint={f.brand?.trim() && f.name?.trim() ? `Saved as: ${fullName(f.brand, f.name)}` : undefined}>
+          <Input value={f.name ?? ''} onChange={set('name')} placeholder={f.brand?.trim() ? 'e.g. PPC 50 kg' : ''} />
         </Field>
         <Field label="SKU / item code">
           <Input value={f.sku ?? ''} onChange={set('sku')} />
@@ -575,14 +598,6 @@ function ProductForm({ open, product, categories, onClose }: { open: boolean; pr
               </option>
             ))}
           </Select>
-        </Field>
-        <Field label="Brand">
-          <Input value={f.brand ?? ''} onChange={set('brand')} list="brand-list" />
-          <datalist id="brand-list">
-            {(brands.data ?? []).map((b) => (
-              <option key={b.id} value={b.name} />
-            ))}
-          </datalist>
         </Field>
         <Field label="We buy in">
           <Select

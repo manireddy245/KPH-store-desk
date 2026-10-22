@@ -7,7 +7,7 @@ import { daysAgoIst, fmtDate, fmtDateTime, todayIst } from '../lib/format';
 import { useOverride } from '../lib/override';
 import { useSession } from '../lib/session';
 import { Page } from '../components/Layout';
-import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Spinner, Table, useDebounced, useToast } from '../components/ui';
+import { Badge, Button, Empty, Field, Input, Modal, Notice, PageTitle, Select, Spinner, Table, cx, useDebounced, useToast } from '../components/ui';
 import { PurchaseReturnModal } from './Returns';
 
 interface PurchaseRow {
@@ -25,6 +25,21 @@ interface PurchaseRow {
   item_count: number;
 }
 
+const text = (a: string, b: string) => a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' });
+
+/** Every way the list can be sorted: label, words for each direction, and which direction a first click uses. */
+const SORTS = {
+  entered: { label: 'Entered on', words: ['oldest first', 'newest first'], first: 'desc', cmp: (a: PurchaseRow, b: PurchaseRow) => a.at.localeCompare(b.at) },
+  billDate: { label: 'Bill date', words: ['oldest first', 'newest first'], first: 'desc', cmp: (a: PurchaseRow, b: PurchaseRow) => a.supplier_invoice_date.localeCompare(b.supplier_invoice_date) || a.at.localeCompare(b.at) },
+  theirNo: { label: 'Their bill no.', words: ['low to high', 'high to low'], first: 'asc', cmp: (a: PurchaseRow, b: PurchaseRow) => text(a.supplier_invoice_no, b.supplier_invoice_no) },
+  ourNo: { label: 'Our no.', words: ['low to high', 'high to low'], first: 'desc', cmp: (a: PurchaseRow, b: PurchaseRow) => text(a.number, b.number) },
+  supplier: { label: 'Supplier', words: ['A to Z', 'Z to A'], first: 'asc', cmp: (a: PurchaseRow, b: PurchaseRow) => text(a.supplier_name, b.supplier_name) },
+  total: { label: 'Total', words: ['smallest first', 'largest first'], first: 'desc', cmp: (a: PurchaseRow, b: PurchaseRow) => a.total_paise - b.total_paise },
+  items: { label: 'Items', words: ['fewest first', 'most first'], first: 'desc', cmp: (a: PurchaseRow, b: PurchaseRow) => a.item_count - b.item_count },
+  enteredBy: { label: 'Entered by', words: ['A to Z', 'Z to A'], first: 'asc', cmp: (a: PurchaseRow, b: PurchaseRow) => text(a.user_name, b.user_name) },
+} satisfies Record<string, { label: string; words: [string, string]; first: 'asc' | 'desc'; cmp: (a: PurchaseRow, b: PurchaseRow) => number }>;
+type SortKey = keyof typeof SORTS;
+
 export function Purchases() {
   const [params, setParams] = useSearchParams();
   const [from, setFrom] = useState(daysAgoIst(30));
@@ -32,7 +47,36 @@ export function Purchases() {
   const [search, setSearch] = useState('');
   const s = useDebounced(search);
   const list = useQuery({ queryKey: ['purchases', from, to, s], queryFn: () => get<PurchaseRow[]>(`/api/purchases${qs({ from, to, search: s })}`) });
-  const rows = list.data ?? [];
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('kph.purchases.sort') ?? 'null');
+      if (v && v.key in SORTS) return v;
+    } catch {
+      /* ignore */
+    }
+    return { key: 'entered', dir: 'desc' };
+  });
+  const setSorting = (key: SortKey, dir?: 'asc' | 'desc') => {
+    const next = { key, dir: dir ?? (sort.key === key ? (sort.dir === 'asc' ? 'desc' : 'asc') : SORTS[key].first) };
+    setSort(next);
+    try {
+      localStorage.setItem('kph.purchases.sort', JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  };
+  const rows = [...(list.data ?? [])].sort((a, b) => {
+    const c = SORTS[sort.key].cmp(a, b);
+    return (sort.dir === 'asc' ? c : -c) || b.id - a.id;
+  });
+  const th = (key: SortKey, label: string, right?: boolean) => (
+    <th className={right ? 'text-right' : undefined} aria-sort={sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" onClick={() => setSorting(key)} className={cx('inline-flex items-center gap-1 hover:text-ink', sort.key === key && 'text-ink')}>
+        {label}
+        <span aria-hidden className="text-[10px]">{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span>
+      </button>
+    </th>
+  );
   const total = rows.filter((r) => r.status === 'posted').reduce((a, r) => a + r.total_paise, 0);
   const openId = params.get('open') ? Number(params.get('open')) : null;
 
@@ -64,17 +108,35 @@ export function Purchases() {
         <Field label="Search" className="min-w-[220px] flex-1">
           <Input placeholder="Supplier, their bill no. or our number" value={search} onChange={(e) => setSearch(e.target.value)} />
         </Field>
+        <Field label="Sort by">
+          <Select
+            value={`${sort.key}:${sort.dir}`}
+            onChange={(e) => {
+              const [k, d] = e.target.value.split(':') as [SortKey, 'asc' | 'desc'];
+              setSorting(k, d);
+            }}
+          >
+            {(Object.keys(SORTS) as SortKey[]).flatMap((k) =>
+              (['desc', 'asc'] as const).map((d) => (
+                <option key={`${k}:${d}`} value={`${k}:${d}`}>
+                  {SORTS[k].label} — {SORTS[k].words[d === 'asc' ? 0 : 1]}
+                </option>
+              )),
+            )}
+          </Select>
+        </Field>
       </div>
       <div className="overflow-hidden rounded-[6px] border border-line bg-white">
         <Table
           head={
             <tr>
-              <th>Our no.</th>
-              <th>Supplier</th>
-              <th>Their bill</th>
-              <th className="text-right">Items</th>
-              <th className="text-right">Total</th>
-              <th>Entered by</th>
+              {th('ourNo', 'Our no.')}
+              {th('supplier', 'Supplier')}
+              {th('theirNo', 'Their bill no.')}
+              {th('billDate', 'Bill date')}
+              {th('items', 'Items', true)}
+              {th('total', 'Total', true)}
+              {th('entered', 'Entered')}
             </tr>
           }
         >
@@ -84,13 +146,15 @@ export function Purchases() {
                 {r.number} {r.source === 'scan' && <Badge tone="teal">Scanned</Badge>} {r.status === 'cancelled' && <Badge tone="bad">Cancelled</Badge>}
               </td>
               <td>{r.supplier_name}</td>
-              <td className="num">
-                {r.supplier_invoice_no} <span className="text-ink-3">· {fmtDate(r.supplier_invoice_date)}</span>
-              </td>
+              <td className="num">{r.supplier_invoice_no}</td>
+              <td className="num whitespace-nowrap">{fmtDate(r.supplier_invoice_date)}</td>
               <td className="num text-right">{r.item_count}</td>
               <td className="num text-right font-bold">{r.status === 'cancelled' ? <s className="text-ink-3">₹{formatPaise(r.total_paise)}</s> : `₹${formatPaise(r.total_paise)}`}</td>
               <td className="text-ink-3">
-                {r.user_name} · {r.device_name ?? '—'}
+                <div className="num whitespace-nowrap">{fmtDateTime(r.at)}</div>
+                <div className="text-xs">
+                  {r.user_name} · {r.device_name ?? '—'}
+                </div>
               </td>
             </tr>
           ))}

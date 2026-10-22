@@ -549,7 +549,10 @@ function Review({
                 <div className="grid gap-3 lg:grid-cols-[minmax(180px,1.1fr)_minmax(220px,1.6fr)_90px_120px_70px_110px_32px]">
                   <div className="min-w-0">
                     <div className="eyebrow lg:hidden">On the bill</div>
-                    <Input aria-label={`Line ${i + 1} as on the bill`} value={r.l.description} placeholder="Item as printed" onChange={(e) => setLine(r.l.key, { description: e.target.value })} className="h-9 font-semibold" />
+                    <div className="flex items-center gap-2">
+                      <span title="Serial no. (S.No on the bill)" className="num grid h-9 min-w-9 place-items-center rounded-[6px] bg-ink px-1.5 text-sm font-bold text-white">{i + 1}</span>
+                      <Input aria-label={`Line ${i + 1} as on the bill`} value={r.l.description} placeholder="Item as printed" onChange={(e) => setLine(r.l.key, { description: e.target.value })} className="h-9 font-semibold" />
+                    </div>
                     <div className="mt-1 flex items-center gap-2 text-xs text-ink-3">
                       HSN
                       <input aria-label="HSN" value={r.l.hsn} onChange={(e) => setLine(r.l.key, { hsn: e.target.value })} className="num w-20 rounded-[4px] border border-line px-1.5 py-0.5" />
@@ -570,6 +573,7 @@ function Review({
                     />
                     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                       <MatchBadge kind={r.l.newProduct ? 'new' : r.l.productId ? r.l.match : 'none'} />
+                      {r.p && <span className="num text-ink-3">#{i + 1} · {r.p.sku}</span>}
                       {r.l.lastCostCp != null && <span className="text-ink-3">last cost ₹{formatCost(r.l.lastCostCp)}</span>}
                     </div>
                     {r.p?.track_batches && (
