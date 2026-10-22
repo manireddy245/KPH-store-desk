@@ -195,7 +195,7 @@ export const callGemini: ModelCaller = async ({ apiKey, model, pages, thinking }
   const out = await postGemini(apiKey, model, {
     contents: [{ role: 'user', parts: [{ text: PROMPT }, ...pages.map((p) => ({ inline_data: { mime_type: p.mimeType, data: p.base64 } }))] }],
     generationConfig: { temperature: 0, response_mime_type: 'application/json', response_schema: SCHEMA, ...thinkingConfig(model, thinking) },
-  });
+  }, scanTimeoutMs(pages.length));
   return parseReadBill(out);
 };
 
@@ -210,7 +210,11 @@ export function parseReadBill(out: string): ReadBill {
   return parsed;
 }
 
-const MAX_PAGES = 6;
+export const MAX_PAGES = 15;
+/** Google takes about 20 MB per request (pages travel as base64, a third bigger than the files). */
+const MAX_TOTAL_BASE64 = 19 * 1024 * 1024;
+/** Two minutes, plus 10 seconds a page beyond 6 (a 15-page bill gets 3½ minutes). */
+export const scanTimeoutMs = (pages: number) => 120_000 + Math.max(0, pages - 6) * 10_000;
 const MAX_BYTES = 12 * 1024 * 1024;
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
 
@@ -248,6 +252,8 @@ export async function scanBill(
     if (b.length > MAX_BYTES) throw new AppError(400, 'FILE_TOO_BIG', 'A page is larger than 12 MB. Take the photo again at a lower size.');
     return b;
   });
+  if (opts.pages.reduce((n, p) => n + p.base64.length, 0) > MAX_TOTAL_BASE64)
+    throw new AppError(400, 'TOO_BIG', 'These pages are too large together for the scanner (about 14 MB in all). Take the photos again from a little further away, or scan the bill in two parts.');
   const settings = await getSettings(sql);
   if (!settings.geminiApiKey) throw new AppError(400, 'SCANNER_KEY', 'The scanner needs a Gemini API key. Admin can add it in Settings → Shop & billing.');
 

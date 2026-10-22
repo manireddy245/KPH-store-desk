@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { istDate } from '@kph/core';
-import type { ReadBill } from '../src/services/scanner.js';
+import { scanTimeoutMs, type ReadBill } from '../src/services/scanner.js';
 import { makeHarness } from './harness.js';
 
 let fakeRead: ReadBill;
@@ -194,6 +194,15 @@ describe('scanning a supplier bill', () => {
     await stock.post('/api/purchases', bill({ scanId: s1.body.scanId, lines: [{ productId: p, qtyMilli: 1000, taxablePaise: 100, gstRateBp: 1800 }] }));
     const s2 = await stock.post('/api/purchases/scan', { pages: [{ mimeType: 'image/jpeg', base64: jpeg }] });
     expect(s2.body.duplicateOf).toMatch(/^PUR\//);
+  });
+
+  it('reads a bill of up to 15 pages in one go', async () => {
+    const pages = (n: number) => Array.from({ length: n }, (_, i) => ({ mimeType: 'image/jpeg', base64: Buffer.from(`page-${i}-${randomUUID()}`).toString('base64') }));
+    const r = await stock.post('/api/purchases/scan', { pages: pages(15) });
+    expect(r.status).toBe(200);
+    expect(r.body.pageCount).toBe(15);
+    expect((await stock.post('/api/purchases/scan', { pages: pages(16) })).status).toBe(400);
+    expect(scanTimeoutMs(15)).toBe(210_000);
   });
 
   it('counter staff cannot scan purchases', async () => {

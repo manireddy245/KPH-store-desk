@@ -14,7 +14,7 @@ export async function registerPurchaseRoutes(app: FastifyInstance, { db, live }:
     const b = z
       .object({
         supplierId: z.number().int().positive().nullable().optional(),
-        pages: z.array(z.object({ mimeType: z.string(), base64: z.string().min(10) })).min(1).max(6),
+        pages: z.array(z.object({ mimeType: z.string(), base64: z.string().min(10) })).min(1).max(15),
       })
       .parse(req.body);
     return scanBill(db.app, ctxOf(req), { pages: b.pages, scanDir: db.scanDir, supplierId: b.supplierId, caller: opts.scanner });

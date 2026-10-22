@@ -139,7 +139,7 @@ export function PurchaseNew() {
     if (!files?.length) return;
     const next = [...pages];
     for (const f of Array.from(files)) {
-      if (next.length >= 6) break;
+      if (next.length >= 15) break;
       next.push(await preparePage(f));
     }
     setPages(next);
@@ -187,7 +187,7 @@ export function PurchaseNew() {
                   </button>
                 </div>
               ))}
-              {pages.length < 6 && (
+              {pages.length < 15 && (
                 <button type="button" onClick={() => cameraRef.current?.click()} className="flex h-52 flex-col items-center justify-center gap-2 rounded-[6px] border-2 border-dashed border-line-2 bg-white text-ink-2 hover:bg-paper">
                   <svg aria-hidden width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#16181b" strokeWidth="1.8"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
                   <b className="text-[15px]">{pages.length ? `Add page ${pages.length + 1}` : 'Take a photo'}</b>
@@ -200,7 +200,7 @@ export function PurchaseNew() {
             <div>
               <Button onClick={() => fileRef.current?.click()}>Choose photo or PDF file…</Button>
             </div>
-            <Notice tone="teal">Lay the bill flat in good light with all four corners in the photo. Up to 6 pages per bill.</Notice>
+            <Notice tone="teal">Lay the bill flat in good light with all four corners in the photo. Up to 15 pages per bill.</Notice>
           </section>
           <aside className="flex flex-col gap-3">
             <Field label="Supplier (optional — the scanner reads it from the bill)">

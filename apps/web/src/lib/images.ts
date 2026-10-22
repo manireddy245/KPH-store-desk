@@ -27,15 +27,24 @@ export async function preparePage(file: File): Promise<PreparedPage> {
   return { mimeType: type, base64: await blobToBase64(file), previewUrl: URL.createObjectURL(file), name: file.name, sizeBytes: file.size };
 }
 
+/** Each photo is kept under ~0.9 MB, so a 15-page bill still fits in one scanner request (~20 MB). */
+const MAX_PHOTO_BYTES = 900_000;
+
 async function shrink(file: File): Promise<Blob> {
   const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions);
-  const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
-  if (scale === 1 && file.size < 1_500_000 && file.type === 'image/jpeg') return file;
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode failed'))), 'image/jpeg', 0.85));
+  if (file.size <= MAX_PHOTO_BYTES && file.type === 'image/jpeg' && Math.max(bitmap.width, bitmap.height) <= MAX_EDGE) return file;
+  // try a little smaller / a little more compressed until it fits (small print stays readable)
+  let blob: Blob | null = null;
+  for (const [edge, quality] of [[MAX_EDGE, 0.85], [MAX_EDGE, 0.75], [1900, 0.72], [1700, 0.68]] as const) {
+    const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode failed'))), 'image/jpeg', quality));
+    if (blob.size <= MAX_PHOTO_BYTES) break;
+  }
+  return blob!;
 }
 
 async function blobToBase64(b: Blob): Promise<string> {
